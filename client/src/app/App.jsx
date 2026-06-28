@@ -245,7 +245,7 @@ function RoomShell({ roomId, displayName, onGoHome }) {
           <div className="stage-body">
             {localMedia.status === 'requesting' ? <p>Запрашиваем доступ к камере и микрофону...</p> : null}
             {canJoinRoom && room.status === 'connecting' ? <p>Подключение...</p> : null}
-            {room.status === 'error' ? <RoomError message={room.error} onRetry={room.retry} /> : null}
+            {room.status === 'error' ? <RoomError message={room.error} onRetry={room.retry} illustration /> : null}
             {room.status === 'room-full' ? (
               <RoomError message="Комната заполнена" actionLabel="Повторить вход" onRetry={room.retry} />
             ) : null}
@@ -593,13 +593,38 @@ function VideoTile({ displayName, stream, media, error = '', isMuted = false, is
   );
 }
 
-function RoomError({ message, actionLabel = 'Повторить', onRetry }) {
+function RoomError({ message, actionLabel = 'Повторить', onRetry, illustration = false }) {
   return (
     <div className="room-error" role="alert">
+      {illustration ? <ServerUnavailableIllustration /> : null}
       <p>{message}</p>
       <button type="button" onClick={onRetry}>
         {actionLabel}
       </button>
     </div>
+  );
+}
+
+function ServerUnavailableIllustration() {
+  return (
+    <svg
+      className="server-unavailable-illustration"
+      width="132"
+      height="112"
+      viewBox="0 0 132 112"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M32 78h68a14 14 0 0 0 2.6-27.8A25.2 25.2 0 0 0 53.7 42 19 19 0 0 0 32 78Z"
+        stroke="currentColor"
+        strokeWidth="5"
+        strokeLinejoin="round"
+      />
+      <rect x="36" y="72" width="60" height="23" rx="7" stroke="currentColor" strokeWidth="5" />
+      <path d="M50 84h18M78 84h4" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
+      <path d="M47 22 85 98" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
+      <circle cx="96" cy="84" r="3.5" fill="currentColor" />
+    </svg>
   );
 }
