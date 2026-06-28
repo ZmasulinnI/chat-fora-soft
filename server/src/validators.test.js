@@ -18,6 +18,11 @@ describe('validateRoomId', () => {
     assert.throws(() => validateRoomId('../room'), ValidationError);
     assert.throws(() => validateRoomId('ab'), ValidationError);
     assert.throws(() => validateRoomId(''), ValidationError);
+    assert.throws(() => validateRoomId(null), ValidationError);
+  });
+
+  it('rejects room ids longer than the supported contract', () => {
+    assert.throws(() => validateRoomId('a'.repeat(65)), ValidationError);
   });
 });
 
@@ -35,6 +40,11 @@ describe('normalizeDisplayName', () => {
   it('rejects empty and unsafe names', () => {
     assert.throws(() => normalizeDisplayName('   '), ValidationError);
     assert.throws(() => normalizeDisplayName('<script>'), ValidationError);
+    assert.throws(() => normalizeDisplayName({}), ValidationError);
+  });
+
+  it('removes control characters before validating display names', () => {
+    assert.equal(normalizeDisplayName('\u0000  Алекс\u0007 Иванов  '), 'Алекс Иванов');
   });
 });
 
@@ -51,6 +61,11 @@ describe('normalizeChatMessage', () => {
 
   it('rejects empty messages', () => {
     assert.throws(() => normalizeChatMessage('   '), ValidationError);
+    assert.throws(() => normalizeChatMessage(null), ValidationError);
+  });
+
+  it('removes control characters before validating chat messages', () => {
+    assert.equal(normalizeChatMessage('\u0000  Привет\u0007 всем  '), 'Привет всем');
   });
 
   it('keeps HTML as inert text for the UI render boundary to escape', () => {

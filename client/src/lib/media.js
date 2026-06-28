@@ -32,8 +32,12 @@ export function getMediaErrorCode(error) {
 }
 
 export function getMediaStatus(stream) {
-  const audioEnabled = Boolean(stream?.getAudioTracks?.().some((track) => track.readyState === 'live'));
-  const videoEnabled = Boolean(stream?.getVideoTracks?.().some((track) => track.readyState === 'live'));
+  const audioEnabled = Boolean(
+    stream?.getAudioTracks?.().some((track) => track.readyState === 'live' && track.enabled !== false)
+  );
+  const videoEnabled = Boolean(
+    stream?.getVideoTracks?.().some((track) => track.readyState === 'live' && track.enabled !== false)
+  );
 
   return {
     audioEnabled,

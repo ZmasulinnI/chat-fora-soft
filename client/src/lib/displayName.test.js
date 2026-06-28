@@ -33,4 +33,20 @@ describe('validateDisplayName', () => {
       error: 'Имя может содержать только буквы, цифры, пробел, дефис и апостроф'
     });
   });
+
+  it('removes control characters before validation', () => {
+    expect(validateDisplayName('\u0000  Алекс\u0007 Иванов  ')).toEqual({
+      ok: true,
+      value: 'Алекс Иванов',
+      error: ''
+    });
+  });
+
+  it('rejects non-string values without throwing', () => {
+    expect(validateDisplayName(null)).toEqual({
+      ok: false,
+      value: '',
+      error: 'Введите имя'
+    });
+  });
 });

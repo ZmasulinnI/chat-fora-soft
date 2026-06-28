@@ -7,6 +7,10 @@ describe('getInitials', () => {
     expect(getInitials('Мария')).toBe('М');
     expect(getInitials('')).toBe('?');
   });
+
+  it('treats HTML-like names as plain text initials', () => {
+    expect(getInitials('<script>alert(1)</script>')).toBe('<');
+  });
 });
 
 describe('hasLiveVideoTrack', () => {
@@ -17,6 +21,18 @@ describe('hasLiveVideoTrack', () => {
 
     expect(hasLiveVideoTrack(stream, { videoEnabled: true })).toBe(true);
     expect(hasLiveVideoTrack(stream, { videoEnabled: false })).toBe(false);
+  });
+
+  it('returns false when stream or live video tracks are missing', () => {
+    expect(hasLiveVideoTrack(null, { videoEnabled: true })).toBe(false);
+    expect(
+      hasLiveVideoTrack(
+        {
+          getVideoTracks: () => [{ readyState: 'ended' }]
+        },
+        { videoEnabled: true }
+      )
+    ).toBe(false);
   });
 });
 
@@ -31,5 +47,10 @@ describe('isAudioMuted', () => {
   it('detects muted audio state', () => {
     expect(isAudioMuted({ audioEnabled: false })).toBe(true);
     expect(isAudioMuted({ audioEnabled: true })).toBe(false);
+  });
+
+  it('defaults unknown audio state to unmuted', () => {
+    expect(isAudioMuted()).toBe(false);
+    expect(isAudioMuted({})).toBe(false);
   });
 });

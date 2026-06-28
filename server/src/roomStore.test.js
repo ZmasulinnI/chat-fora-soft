@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { MAX_PARTICIPANTS_PER_ROOM, RoomStore, RoomStoreError } from './roomStore.js';
+import {
+  MAX_PARTICIPANTS_PER_ROOM,
+  RoomStore,
+  RoomStoreError,
+  normalizeMediaState
+} from './roomStore.js';
 
 function createStore() {
   let now = 1000;
@@ -33,23 +38,37 @@ describe('RoomStore.joinRoom', () => {
     assert.deepEqual(result.room.messages, []);
   });
 
-  it('allows duplicate display names by using participant ids internally', () => {
+  it('rejects duplicate display names inside the same room', () => {
     const store = createStore();
 
     store.joinRoom({ roomId: 'room-1', participantId: 'socket-1', displayName: 'Алекс' });
-    store.joinRoom({ roomId: 'room-1', participantId: 'socket-2', displayName: 'Алекс' });
+
+    assert.throws(
+      () => store.joinRoom({ roomId: 'room-1', participantId: 'socket-2', displayName: 'Алекс' }),
+      (error) =>
+        error instanceof RoomStoreError &&
+        error.code === 'DISPLAY_NAME_TAKEN' &&
+        error.details.roomId === 'room-1' &&
+        error.details.displayName === 'Алекс'
+    );
 
     const snapshot = store.getRoomSnapshot('room-1');
 
-    assert.equal(snapshot.participants.length, 2);
+    assert.equal(snapshot.participants.length, 1);
     assert.deepEqual(
       snapshot.participants.map((participant) => participant.id),
-      ['socket-1', 'socket-2']
+      ['socket-1']
     );
-    assert.deepEqual(
-      snapshot.participants.map((participant) => participant.displayName),
-      ['Алекс', 'Алекс']
-    );
+  });
+
+  it('allows the same participant to refresh its own display name', () => {
+    const store = createStore();
+
+    store.joinRoom({ roomId: 'room-1', participantId: 'socket-1', displayName: 'Алекс' });
+    const result = store.joinRoom({ roomId: 'room-1', participantId: 'socket-1', displayName: 'Алекс' });
+
+    assert.equal(result.room.participants.length, 1);
+    assert.equal(result.participant.displayName, 'Алекс');
   });
 
   it('rejects the fifth participant', () => {
@@ -65,6 +84,47 @@ describe('RoomStore.joinRoom', () => {
     );
 
     assert.equal(store.getRoomSnapshot('room-1').participants.length, MAX_PARTICIPANTS_PER_ROOM);
+  });
+
+  it('keeps the last available slot atomic for sequential join attempts', () => {
+    const store = createStore();
+
+    for (let i = 1; i < MAX_PARTICIPANTS_PER_ROOM; i += 1) {
+      store.joinRoom({ roomId: 'room-1', participantId: `socket-${i}`, displayName: `User ${i}` });
+    }
+
+    const winningJoin = store.joinRoom({
+      roomId: 'room-1',
+      participantId: 'socket-4',
+      displayName: 'Winner'
+    });
+
+    assert.equal(winningJoin.room.participants.length, MAX_PARTICIPANTS_PER_ROOM);
+    assert.throws(
+      () => store.joinRoom({ roomId: 'room-1', participantId: 'socket-5', displayName: 'Too Late' }),
+      (error) => error instanceof RoomStoreError && error.code === 'ROOM_FULL'
+    );
+    assert.deepEqual(
+      store.getRoomSnapshot('room-1').participants.map((participant) => participant.id),
+      ['socket-1', 'socket-2', 'socket-3', 'socket-4']
+    );
+  });
+
+  it('includes room limit details when rejecting an over-capacity join', () => {
+    const store = createStore();
+
+    for (let i = 1; i <= MAX_PARTICIPANTS_PER_ROOM; i += 1) {
+      store.joinRoom({ roomId: 'room-1', participantId: `socket-${i}`, displayName: `User ${i}` });
+    }
+
+    assert.throws(
+      () => store.joinRoom({ roomId: 'room-1', participantId: 'socket-5', displayName: 'User 5' }),
+      (error) =>
+        error instanceof RoomStoreError &&
+        error.code === 'ROOM_FULL' &&
+        error.details.roomId === 'room-1' &&
+        error.details.limit === MAX_PARTICIPANTS_PER_ROOM
+    );
   });
 });
 
@@ -94,6 +154,22 @@ describe('RoomStore.leaveRoom', () => {
     assert.equal(result.roomDeleted, true);
     assert.equal(result.room, null);
     assert.equal(store.getRoomSnapshot('room-1'), null);
+  });
+
+  it('keeps message history while at least one participant remains', () => {
+    const store = createStore();
+
+    store.joinRoom({ roomId: 'room-1', participantId: 'socket-1', displayName: 'Алекс' });
+    store.joinRoom({ roomId: 'room-1', participantId: 'socket-2', displayName: 'Мария' });
+    store.appendUserMessage('room-1', 'socket-1', 'Привет');
+
+    store.leaveRoom('room-1', 'socket-1');
+
+    const snapshot = store.getRoomSnapshot('room-1');
+
+    assert.equal(snapshot.participants.length, 1);
+    assert.equal(snapshot.messages.length, 1);
+    assert.equal(snapshot.messages[0].text, 'Привет');
   });
 
   it('treats leaving an unknown room as a no-op', () => {
@@ -160,5 +236,51 @@ describe('RoomStore messages and media', () => {
       () => store.appendUserMessage('room-1', 'socket-2', 'Привет'),
       (error) => error instanceof RoomStoreError && error.code === 'ROOM_NOT_JOINED'
     );
+  });
+
+  it('returns defensive copies for participants and messages', () => {
+    const store = createStore();
+
+    store.joinRoom({
+      roomId: 'room-1',
+      participantId: 'socket-1',
+      displayName: 'Алекс',
+      media: { audioEnabled: true, videoEnabled: true }
+    });
+    store.appendUserMessage('room-1', 'socket-1', 'Привет');
+
+    const snapshot = store.getRoomSnapshot('room-1');
+    snapshot.participants[0].displayName = 'Changed';
+    snapshot.participants[0].media.audioEnabled = false;
+    snapshot.messages[0].text = 'Changed';
+
+    const nextSnapshot = store.getRoomSnapshot('room-1');
+
+    assert.equal(nextSnapshot.participants[0].displayName, 'Алекс');
+    assert.deepEqual(nextSnapshot.participants[0].media, {
+      audioEnabled: true,
+      videoEnabled: true
+    });
+    assert.equal(nextSnapshot.messages[0].text, 'Привет');
+  });
+});
+
+describe('normalizeMediaState', () => {
+  it('defaults missing media flags to enabled', () => {
+    assert.deepEqual(normalizeMediaState({}), {
+      audioEnabled: true,
+      videoEnabled: true
+    });
+  });
+
+  it('normalizes explicit false flags and treats other values as enabled', () => {
+    assert.deepEqual(normalizeMediaState({ audioEnabled: false, videoEnabled: false }), {
+      audioEnabled: false,
+      videoEnabled: false
+    });
+    assert.deepEqual(normalizeMediaState({ audioEnabled: 0, videoEnabled: null }), {
+      audioEnabled: true,
+      videoEnabled: true
+    });
   });
 });

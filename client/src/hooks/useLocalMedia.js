@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import {
   getMediaErrorCode,
   getMediaStatus,
@@ -49,10 +49,10 @@ function localMediaReducer(state, action) {
 
 export function useLocalMedia() {
   const [state, dispatch] = useReducer(localMediaReducer, initialLocalMediaState);
+  const streamRef = useRef(null);
 
   useEffect(() => {
     let active = true;
-    let currentStream = null;
 
     async function requestMedia() {
       dispatch({ type: 'requesting' });
@@ -64,18 +64,21 @@ export function useLocalMedia() {
 
       try {
         const result = await acquireLocalMedia();
-        currentStream = result.stream;
-        attachTrackEndHandlers(currentStream, dispatch);
+        streamRef.current = result.stream;
+        attachTrackEndHandlers(result.stream, dispatch);
 
         if (!active) {
-          stopMediaStream(currentStream);
+          stopMediaStream(result.stream);
+          if (streamRef.current === result.stream) {
+            streamRef.current = null;
+          }
           return;
         }
 
         dispatch({
           type: 'ready',
-          stream: currentStream,
-          ...getMediaStatus(currentStream),
+          stream: result.stream,
+          ...getMediaStatus(result.stream),
           error: result.warning
         });
       } catch (error) {
@@ -96,8 +99,15 @@ export function useLocalMedia() {
 
     return () => {
       active = false;
-      stopMediaStream(currentStream);
+      stopMediaStream(streamRef.current);
+      streamRef.current = null;
     };
+  }, []);
+
+  const stopLocalMedia = useCallback(() => {
+    stopMediaStream(streamRef.current);
+    streamRef.current = null;
+    dispatch({ type: 'ready', stream: null, audioEnabled: false, videoEnabled: false, error: '' });
   }, []);
 
   const toggleAudio = useCallback(async () => {
@@ -125,6 +135,7 @@ export function useLocalMedia() {
         ...audioStream.getAudioTracks()
       ]);
 
+      streamRef.current = nextStream;
       attachTrackEndHandlers(nextStream, dispatch);
       dispatch({
         type: 'ready',
@@ -149,16 +160,31 @@ export function useLocalMedia() {
 
     if (state.videoEnabled) {
       for (const track of state.stream.getVideoTracks()) {
-        track.stop();
-        state.stream.removeTrack(track);
+        track.enabled = false;
       }
-
-      const nextStream = new MediaStream(state.stream.getTracks());
 
       dispatch({
         type: 'ready',
-        stream: nextStream,
-        ...getMediaStatus(nextStream),
+        stream: state.stream,
+        ...getMediaStatus(state.stream),
+        error: state.error
+      });
+      return;
+    }
+
+    const disabledVideoTracks = state.stream
+      .getVideoTracks()
+      .filter((track) => track.readyState === 'live' && track.enabled === false);
+
+    if (disabledVideoTracks.length > 0) {
+      for (const track of disabledVideoTracks) {
+        track.enabled = true;
+      }
+
+      dispatch({
+        type: 'ready',
+        stream: state.stream,
+        ...getMediaStatus(state.stream),
         error: state.error
       });
       return;
@@ -171,6 +197,7 @@ export function useLocalMedia() {
         ...videoStream.getVideoTracks()
       ]);
 
+      streamRef.current = nextStream;
       attachTrackEndHandlers(nextStream, dispatch);
       dispatch({
         type: 'ready',
@@ -191,7 +218,8 @@ export function useLocalMedia() {
   return {
     ...state,
     toggleAudio,
-    toggleVideo
+    toggleVideo,
+    stopLocalMedia
   };
 }
 

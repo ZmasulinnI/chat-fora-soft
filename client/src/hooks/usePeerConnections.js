@@ -31,6 +31,16 @@ export function usePeerConnections({ socket, roomId, participantId, participants
     });
   }, []);
 
+  const closeAllPeerConnections = useCallback(() => {
+    for (const peerConnection of peerConnectionsRef.current.values()) {
+      peerConnection.close();
+    }
+
+    peerConnectionsRef.current.clear();
+    setRemoteStreams({});
+    setPeerErrors({});
+  }, []);
+
   const getOrCreatePeerConnection = useCallback(
     (remoteParticipantId) => {
       const existingPeerConnection = peerConnectionsRef.current.get(remoteParticipantId);
@@ -62,16 +72,21 @@ export function usePeerConnections({ socket, roomId, participantId, participants
       };
 
       peerConnection.ontrack = (event) => {
-        const [remoteStream] = event.streams;
+        setRemoteStreams((currentStreams) => {
+          const remoteStream = getRemoteStreamFromTrackEvent(
+            currentStreams[remoteParticipantId],
+            event
+          );
 
-        if (!remoteStream) {
-          return;
-        }
+          if (!remoteStream) {
+            return currentStreams;
+          }
 
-        setRemoteStreams((currentStreams) => ({
-          ...currentStreams,
-          [remoteParticipantId]: remoteStream
-        }));
+          return {
+            ...currentStreams,
+            [remoteParticipantId]: remoteStream
+          };
+        });
       };
 
       peerConnection.onconnectionstatechange = () => {
@@ -83,7 +98,6 @@ export function usePeerConnections({ socket, roomId, participantId, participants
         }
       };
 
-      syncLocalTracks(peerConnection, localStreamRef.current);
       peerConnectionsRef.current.set(remoteParticipantId, peerConnection);
 
       return peerConnection;
@@ -97,7 +111,12 @@ export function usePeerConnections({ socket, roomId, participantId, participants
         const peerConnection = peerConnectionsRef.current.get(participant.id);
 
         if (peerConnection) {
-          syncLocalTracks(peerConnection, localStream);
+          syncLocalTracks(peerConnection, localStream).catch(() => {
+            setPeerErrors((currentErrors) => ({
+              ...currentErrors,
+              [participant.id]: 'Не удалось обновить локальные медиатреки'
+            }));
+          });
         }
       }
     }
@@ -120,6 +139,7 @@ export function usePeerConnections({ socket, roomId, participantId, participants
       }
 
       try {
+        await syncLocalTracks(peerConnection, localStreamRef.current);
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
         socket.emit('webrtc:offer', {
@@ -144,6 +164,7 @@ export function usePeerConnections({ socket, roomId, participantId, participants
 
       try {
         await peerConnection.setRemoteDescription(payload);
+        await syncLocalTracks(peerConnection, localStreamRef.current);
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
         socket.emit('webrtc:answer', {
@@ -227,47 +248,102 @@ export function usePeerConnections({ socket, roomId, participantId, participants
   }, [closePeerConnection, participantId, participants]);
 
   useEffect(() => {
-    return () => {
-      for (const peerConnection of peerConnectionsRef.current.values()) {
-        peerConnection.close();
-      }
-
-      peerConnectionsRef.current.clear();
-      setRemoteStreams({});
-      setPeerErrors({});
-    };
-  }, []);
+    return closeAllPeerConnections;
+  }, [closeAllPeerConnections]);
 
   return {
     remoteStreams,
-    peerErrors
+    peerErrors,
+    closeAllPeerConnections
   };
 }
 
-function syncLocalTracks(peerConnection, localStream) {
+export async function syncLocalTracks(peerConnection, localStream) {
   if (!localStream) {
     return;
   }
 
-  const localTracks = localStream.getTracks();
+  const localTracks = localStream.getTracks().filter((track) => track.readyState === 'live');
+  const audioTrack = localTracks.find((track) => track.kind === 'audio') ?? null;
+  const videoTrack = localTracks.find((track) => track.kind === 'video') ?? null;
+  const videoSender = ensureVideoSender(peerConnection, videoTrack, localStream);
 
-  for (const localTrack of localTracks) {
-    const sender = peerConnection
+  if (audioTrack) {
+    const audioSender = peerConnection
       .getSenders()
-      .find((candidateSender) => candidateSender.track?.kind === localTrack.kind);
+      .find((sender) => sender.track?.kind === 'audio');
 
-    if (sender) {
-      if (sender.track !== localTrack) {
-        sender.replaceTrack(localTrack);
+    if (audioSender) {
+      if (audioSender.track !== audioTrack) {
+        await audioSender.replaceTrack(audioTrack);
       }
     } else {
-      peerConnection.addTrack(localTrack, localStream);
+      peerConnection.addTrack(audioTrack, localStream);
     }
   }
 
-  for (const sender of peerConnection.getSenders()) {
-    if (sender.track && !localTracks.includes(sender.track)) {
-      sender.replaceTrack(null);
-    }
+  if (videoSender?.setStreams && localStream) {
+    videoSender.setStreams(localStream);
   }
+
+  if (videoSender && videoSender.track !== videoTrack) {
+    await videoSender.replaceTrack(videoTrack);
+  }
+}
+
+export function getRemoteStreamFromTrackEvent(existingStream, event) {
+  const [eventStream] = event.streams ?? [];
+
+  if (eventStream) {
+    return eventStream;
+  }
+
+  if (!event.track) {
+    return existingStream ?? null;
+  }
+
+  const remoteStream = existingStream ?? new MediaStream();
+  const hasTrack = remoteStream
+    .getTracks()
+    .some((track) => track.id === event.track.id);
+
+  if (!hasTrack) {
+    remoteStream.addTrack(event.track);
+  }
+
+  return remoteStream;
+}
+
+function ensureVideoSender(peerConnection, preferredVideoTrack, localStream) {
+  const existingVideoTransceiver = peerConnection
+    .getTransceivers?.()
+    .find(
+      (transceiver) =>
+        transceiver.sender?.track?.kind === 'video' || transceiver.receiver?.track?.kind === 'video'
+    );
+
+  if (existingVideoTransceiver) {
+    if (existingVideoTransceiver.direction !== 'stopped') {
+      existingVideoTransceiver.direction = 'sendrecv';
+    }
+
+    return existingVideoTransceiver.sender;
+  }
+
+  const existingVideoSender = peerConnection
+    .getSenders()
+    .find((sender) => sender.track?.kind === 'video');
+
+  if (existingVideoSender) {
+    return existingVideoSender;
+  }
+
+  if (typeof peerConnection.addTransceiver === 'function') {
+    return peerConnection.addTransceiver('video', {
+      direction: 'sendrecv',
+      streams: localStream ? [localStream] : []
+    }).sender;
+  }
+
+  return preferredVideoTrack ? peerConnection.addTrack(preferredVideoTrack, localStream) : null;
 }

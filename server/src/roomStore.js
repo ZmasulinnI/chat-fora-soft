@@ -29,6 +29,8 @@ export class RoomStore {
       this.#assertRoomHasCapacity(room);
     }
 
+    this.#assertDisplayNameAvailable(room, normalizedParticipantId, normalizedDisplayName);
+
     const participant = {
       id: normalizedParticipantId,
       displayName: normalizedDisplayName,
@@ -194,6 +196,19 @@ export class RoomStore {
       throw new RoomStoreError('ROOM_FULL', 'Комната заполнена', {
         roomId: room.id,
         limit: MAX_PARTICIPANTS_PER_ROOM
+      });
+    }
+  }
+
+  #assertDisplayNameAvailable(room, participantId, displayName) {
+    const isNameTaken = [...room.participants.values()].some(
+      (participant) => participant.id !== participantId && participant.displayName === displayName
+    );
+
+    if (isNameTaken) {
+      throw new RoomStoreError('DISPLAY_NAME_TAKEN', 'Этот никнейм уже занят в комнате', {
+        roomId: room.id,
+        displayName
       });
     }
   }

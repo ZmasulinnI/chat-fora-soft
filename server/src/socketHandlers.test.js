@@ -76,6 +76,34 @@ describe('room lifecycle socket handlers', () => {
     }
   });
 
+  it('rejects duplicate display names with DISPLAY_NAME_TAKEN', async () => {
+    const server = await createTestServer();
+    const clients = [];
+
+    try {
+      const first = await connectClient(server.url);
+      const second = await connectClient(server.url);
+      clients.push(first, second);
+
+      const firstJoin = await emitWithAck(first, 'room:join', {
+        roomId: 'room-1',
+        displayName: 'Алекс'
+      });
+      const duplicateJoin = await emitWithAck(second, 'room:join', {
+        roomId: 'room-1',
+        displayName: 'Алекс'
+      });
+
+      assert.equal(firstJoin.ok, true);
+      assert.equal(duplicateJoin.ok, false);
+      assert.equal(duplicateJoin.code, 'DISPLAY_NAME_TAKEN');
+      assert.equal(duplicateJoin.message, 'Этот никнейм уже занят в комнате');
+      assert.equal(server.roomStore.getRoomSnapshot('room-1').participants.length, 1);
+    } finally {
+      await closeTestServer(server, clients);
+    }
+  });
+
   it('leaves a room and broadcasts participant:left', async () => {
     const server = await createTestServer();
     const clients = [];
@@ -120,6 +148,39 @@ describe('room lifecycle socket handlers', () => {
 
       assert.equal((await leftEvent).participantId, firstParticipantId);
       assert.equal(server.roomStore.getRoomSnapshot('room-1').participants.length, 1);
+    } finally {
+      await closeTestServer(server, clients);
+    }
+  });
+
+  it('keeps participant join and leave broadcasts scoped to the room', async () => {
+    const server = await createTestServer();
+    const clients = [];
+
+    try {
+      const first = await connectClient(server.url);
+      const second = await connectClient(server.url);
+      const outsider = await connectClient(server.url);
+      clients.push(first, second, outsider);
+
+      await emitWithAck(first, 'room:join', { roomId: 'room-1', displayName: 'Алекс' });
+      await emitWithAck(outsider, 'room:join', { roomId: 'room-2', displayName: 'Никита' });
+
+      const firstJoinedEvent = waitForEvent(first, 'participant:joined');
+      const outsiderNoJoinedEvent = waitForNoEvent(outsider, 'participant:joined');
+
+      await emitWithAck(second, 'room:join', { roomId: 'room-1', displayName: 'Мария' });
+
+      assert.equal((await firstJoinedEvent).participant.id, second.id);
+      await outsiderNoJoinedEvent;
+
+      const firstLeftEvent = waitForEvent(first, 'participant:left');
+      const outsiderNoLeftEvent = waitForNoEvent(outsider, 'participant:left');
+
+      await emitWithAck(second, 'room:leave', {});
+
+      assert.equal((await firstLeftEvent).participantId, second.id);
+      await outsiderNoLeftEvent;
     } finally {
       await closeTestServer(server, clients);
     }
@@ -254,6 +315,50 @@ describe('chat socket handlers', () => {
       await closeTestServer(server, clients);
     }
   });
+
+  it('does not deliver room chat messages to participants in another room', async () => {
+    const server = await createTestServer();
+    const clients = [];
+
+    try {
+      const first = await connectClient(server.url);
+      const second = await connectClient(server.url);
+      const outsider = await connectClient(server.url);
+      clients.push(first, second, outsider);
+
+      await emitWithAck(first, 'room:join', { roomId: 'room-1', displayName: 'Алекс' });
+      await emitWithAck(second, 'room:join', { roomId: 'room-1', displayName: 'Мария' });
+      await emitWithAck(outsider, 'room:join', { roomId: 'room-2', displayName: 'Никита' });
+
+      const firstMessageEvent = waitForMatchingEvent(
+        first,
+        'chat:message',
+        (message) => message.type === 'user' && message.text === 'Только room-1'
+      );
+      const secondMessageEvent = waitForMatchingEvent(
+        second,
+        'chat:message',
+        (message) => message.type === 'user' && message.text === 'Только room-1'
+      );
+      const outsiderNoMessageEvent = waitForMatchingNoEvent(
+        outsider,
+        'chat:message',
+        (message) => message.type === 'user' && message.text === 'Только room-1'
+      );
+
+      const response = await emitWithAck(first, 'chat:send', {
+        roomId: 'room-1',
+        text: 'Только room-1'
+      });
+
+      assert.equal(response.ok, true);
+      assert.equal((await firstMessageEvent).id, response.message.id);
+      assert.equal((await secondMessageEvent).id, response.message.id);
+      await outsiderNoMessageEvent;
+    } finally {
+      await closeTestServer(server, clients);
+    }
+  });
 });
 
 describe('WebRTC signaling relay handlers', () => {
@@ -362,6 +467,42 @@ describe('WebRTC signaling relay handlers', () => {
 
       assert.equal(response.ok, false);
       assert.equal(response.code, 'PARTICIPANT_NOT_FOUND');
+    } finally {
+      await closeTestServer(server, clients);
+    }
+  });
+
+  it('relays WebRTC signaling only to the requested target participant', async () => {
+    const server = await createTestServer();
+    const clients = [];
+
+    try {
+      const first = await connectClient(server.url);
+      const second = await connectClient(server.url);
+      const third = await connectClient(server.url);
+      clients.push(first, second, third);
+
+      await emitWithAck(first, 'room:join', { roomId: 'room-1', displayName: 'Алекс' });
+      await emitWithAck(second, 'room:join', { roomId: 'room-1', displayName: 'Мария' });
+      await emitWithAck(third, 'room:join', { roomId: 'room-1', displayName: 'Никита' });
+
+      const targetOfferEvent = waitForEvent(second, 'webrtc:offer');
+      const thirdNoOfferEvent = waitForNoEvent(third, 'webrtc:offer');
+
+      const response = await emitWithAck(first, 'webrtc:offer', {
+        roomId: 'room-1',
+        to: second.id,
+        payload: { type: 'offer', sdp: 'target-only-offer' }
+      });
+
+      assert.equal(response.ok, true);
+      assert.deepEqual(await targetOfferEvent, {
+        roomId: 'room-1',
+        from: first.id,
+        to: second.id,
+        payload: { type: 'offer', sdp: 'target-only-offer' }
+      });
+      await thirdNoOfferEvent;
     } finally {
       await closeTestServer(server, clients);
     }
@@ -525,6 +666,43 @@ function waitForMatchingEvent(client, eventName, predicate) {
       clearTimeout(timeoutId);
       client.off(eventName, onEvent);
       resolve(payload);
+    }
+
+    client.on(eventName, onEvent);
+  });
+}
+
+function waitForNoEvent(client, eventName, timeoutMs = 150) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      client.off(eventName, onEvent);
+      resolve();
+    }, timeoutMs);
+
+    function onEvent(payload) {
+      clearTimeout(timeoutId);
+      reject(new Error(`Unexpected ${eventName}: ${JSON.stringify(payload)}`));
+    }
+
+    client.once(eventName, onEvent);
+  });
+}
+
+function waitForMatchingNoEvent(client, eventName, predicate, timeoutMs = 150) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      client.off(eventName, onEvent);
+      resolve();
+    }, timeoutMs);
+
+    function onEvent(payload) {
+      if (!predicate(payload)) {
+        return;
+      }
+
+      clearTimeout(timeoutId);
+      client.off(eventName, onEvent);
+      reject(new Error(`Unexpected matching ${eventName}: ${JSON.stringify(payload)}`));
     }
 
     client.on(eventName, onEvent);

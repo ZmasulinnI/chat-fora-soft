@@ -51,7 +51,7 @@ export function roomReducer(state, action) {
     case 'error':
       return {
         ...state,
-        status: action.code === 'ROOM_FULL' ? 'room-full' : 'error',
+        status: getErrorStatus(action.code),
         error: action.message || 'Не удалось подключиться к серверу'
       };
     case 'reset':
@@ -59,6 +59,18 @@ export function roomReducer(state, action) {
     default:
       return state;
   }
+}
+
+function getErrorStatus(code) {
+  if (code === 'ROOM_FULL') {
+    return 'room-full';
+  }
+
+  if (code === 'DISPLAY_NAME_TAKEN') {
+    return 'display-name-taken';
+  }
+
+  return 'error';
 }
 
 export function useRoom({ roomId, displayName, media = {}, enabled = true }) {
@@ -174,6 +186,25 @@ export function useRoom({ roomId, displayName, media = {}, enabled = true }) {
   }, [connect, displayName, enabled, roomId]);
 
   useEffect(() => {
+    if (!enabled) {
+      return undefined;
+    }
+
+    function handlePageHide() {
+      const socket = socketRef.current;
+
+      if (socket?.connected) {
+        socket.emit('room:leave', {});
+        socket.disconnect();
+      }
+    }
+
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => window.removeEventListener('pagehide', handlePageHide);
+  }, [enabled]);
+
+  useEffect(() => {
     const socket = socketRef.current;
 
     if (!enabled || state.status !== 'joined' || !socket?.connected) {
@@ -191,6 +222,33 @@ export function useRoom({ roomId, displayName, media = {}, enabled = true }) {
     socketRef.current?.disconnect();
     connect();
   }, [connect]);
+
+  const leaveRoom = useCallback(
+    () =>
+      new Promise((resolve) => {
+        const socket = socketRef.current;
+
+        function finish(response = { ok: true }) {
+          socket?.disconnect();
+          if (socketRef.current === socket) {
+            socketRef.current = null;
+            setSocketClient(null);
+          }
+          dispatch({ type: 'reset' });
+          resolve(response);
+        }
+
+        if (!socket?.connected) {
+          finish({ ok: true });
+          return;
+        }
+
+        socket.timeout(1200).emit('room:leave', {}, (error, response) => {
+          finish(error ? { ok: false, message: 'Не удалось подтвердить выход из комнаты' } : response);
+        });
+      }),
+    []
+  );
 
   const sendChatMessage = useCallback(
     (text) =>
@@ -223,6 +281,7 @@ export function useRoom({ roomId, displayName, media = {}, enabled = true }) {
     ...state,
     socket: socketClient,
     retry,
+    leaveRoom,
     sendChatMessage
   };
 }

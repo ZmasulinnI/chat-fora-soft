@@ -5,6 +5,15 @@ describe('normalizeOutgoingMessage', () => {
   it('trims text', () => {
     expect(normalizeOutgoingMessage('  Привет  ')).toBe('Привет');
   });
+
+  it('keeps HTML-like text as a plain string for React escaping', () => {
+    expect(normalizeOutgoingMessage('  <b>Привет</b>  ')).toBe('<b>Привет</b>');
+  });
+
+  it('normalizes nullish values to an empty string', () => {
+    expect(normalizeOutgoingMessage(null)).toBe('');
+    expect(normalizeOutgoingMessage(undefined)).toBe('');
+  });
 });
 
 describe('canSendMessage', () => {

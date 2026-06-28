@@ -16,9 +16,13 @@
     "start": "npm run start --workspace server",
     "test": "npm run test --workspaces --if-present",
     "test:client": "npm run test --workspace client",
-    "test:server": "npm run test --workspace server"
+    "test:server": "npm run test --workspace server",
+    "test:e2e": "playwright test"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
   }
 }

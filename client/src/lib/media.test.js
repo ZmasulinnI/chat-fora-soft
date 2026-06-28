@@ -22,6 +22,16 @@ describe('isWebRtcSupported', () => {
 
     globalThis.RTCPeerConnection = originalPeerConnection;
   });
+
+  it('returns false when getUserMedia is unavailable', () => {
+    const originalPeerConnection = globalThis.RTCPeerConnection;
+    globalThis.RTCPeerConnection = function RTCPeerConnection() {};
+
+    expect(isWebRtcSupported({ mediaDevices: {} })).toBe(false);
+    expect(isWebRtcSupported({})).toBe(false);
+
+    globalThis.RTCPeerConnection = originalPeerConnection;
+  });
 });
 
 describe('getMediaErrorCode', () => {
@@ -46,6 +56,35 @@ describe('getMediaStatus', () => {
       videoEnabled: true
     });
   });
+
+  it('treats ended or missing tracks as disabled media', () => {
+    expect(
+      getMediaStatus({
+        getAudioTracks: () => [{ readyState: 'ended' }],
+        getVideoTracks: () => []
+      })
+    ).toEqual({
+      audioEnabled: false,
+      videoEnabled: false
+    });
+
+    expect(getMediaStatus(null)).toEqual({
+      audioEnabled: false,
+      videoEnabled: false
+    });
+  });
+
+  it('treats disabled live tracks as disabled media', () => {
+    expect(
+      getMediaStatus({
+        getAudioTracks: () => [{ readyState: 'live', enabled: false }],
+        getVideoTracks: () => [{ readyState: 'live', enabled: false }]
+      })
+    ).toEqual({
+      audioEnabled: false,
+      videoEnabled: false
+    });
+  });
 });
 
 describe('stopMediaStream', () => {
@@ -59,5 +98,9 @@ describe('stopMediaStream', () => {
 
     expect(firstTrack.stop).toHaveBeenCalledOnce();
     expect(secondTrack.stop).toHaveBeenCalledOnce();
+  });
+
+  it('does not throw for a missing stream', () => {
+    expect(() => stopMediaStream(null)).not.toThrow();
   });
 });

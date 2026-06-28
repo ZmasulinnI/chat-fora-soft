@@ -51,6 +51,37 @@ describe('roomReducer', () => {
     expect(state.error).toBe('Комната заполнена');
   });
 
+  it('maps DISPLAY_NAME_TAKEN to a dedicated status', () => {
+    const state = roomReducer(initialRoomState, {
+      type: 'error',
+      code: 'DISPLAY_NAME_TAKEN',
+      message: 'Этот никнейм уже занят в комнате'
+    });
+
+    expect(state.status).toBe('display-name-taken');
+    expect(state.error).toBe('Этот никнейм уже занят в комнате');
+  });
+
+  it('maps generic connection errors to error status', () => {
+    const state = roomReducer(initialRoomState, {
+      type: 'error',
+      code: 'SERVER_UNAVAILABLE',
+      message: 'Соединение с сервером потеряно'
+    });
+
+    expect(state.status).toBe('error');
+    expect(state.error).toBe('Соединение с сервером потеряно');
+  });
+
+  it('uses a fallback message for unknown errors', () => {
+    const state = roomReducer(initialRoomState, {
+      type: 'error'
+    });
+
+    expect(state.status).toBe('error');
+    expect(state.error).toBe('Не удалось подключиться к серверу');
+  });
+
   it('updates participant media state', () => {
     const joinedState = roomReducer(initialRoomState, {
       type: 'joined',
@@ -79,5 +110,45 @@ describe('roomReducer', () => {
       audioEnabled: false,
       videoEnabled: true
     });
+  });
+
+  it('ignores media updates for participants outside the current state', () => {
+    const joinedState = roomReducer(initialRoomState, {
+      type: 'joined',
+      participantId: 'socket-1',
+      room: {
+        participants: [
+          {
+            id: 'socket-1',
+            displayName: 'Алекс',
+            media: { audioEnabled: true, videoEnabled: true }
+          }
+        ],
+        messages: []
+      }
+    });
+    const updatedState = roomReducer(joinedState, {
+      type: 'participant:media-updated',
+      participant: {
+        id: 'socket-2',
+        displayName: 'Мария',
+        media: { audioEnabled: false, videoEnabled: false }
+      }
+    });
+
+    expect(updatedState.participants).toEqual(joinedState.participants);
+  });
+
+  it('resets room state after leaving', () => {
+    const joinedState = roomReducer(initialRoomState, {
+      type: 'joined',
+      participantId: 'socket-1',
+      room: {
+        participants: [{ id: 'socket-1', displayName: 'Алекс' }],
+        messages: [{ id: 'message-1', type: 'system', text: 'Алекс присоединился' }]
+      }
+    });
+
+    expect(roomReducer(joinedState, { type: 'reset' })).toEqual(initialRoomState);
   });
 });

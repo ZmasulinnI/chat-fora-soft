@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { LogOut, Mic, MicOff, Video, VideoOff } from 'lucide-react';
+import {
+  Copy,
+  CopyCheck,
+  LogOut,
+  Mic,
+  MicOff,
+  UserRound,
+  Video,
+  VideoOff,
+  Volume2
+} from 'lucide-react';
 import { useLocalMedia } from '../hooks/useLocalMedia.js';
 import { usePeerConnections } from '../hooks/usePeerConnections.js';
 import { useRoom } from '../hooks/useRoom.js';
@@ -128,6 +138,8 @@ function NameGate({ title, submitLabel, onSubmit }) {
 }
 
 function RoomShell({ roomId, displayName, onGoHome }) {
+  const [inviteStatus, setInviteStatus] = useState({ type: 'idle', message: '' });
+  const [isLeaving, setIsLeaving] = useState(false);
   const localMedia = useLocalMedia();
   const canJoinRoom = localMedia.status === 'ready' || localMedia.status === 'unsupported';
   const room = useRoom({ roomId, displayName, media: localMedia, enabled: canJoinRoom });
@@ -140,6 +152,50 @@ function RoomShell({ roomId, displayName, onGoHome }) {
   });
   const localParticipant = room.participants.find((participant) => participant.id === room.participantId);
 
+  useEffect(() => {
+    if (inviteStatus.type === 'idle') {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setInviteStatus({ type: 'idle', message: '' });
+    }, 3200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [inviteStatus.type]);
+
+  async function handleCopyInviteLink() {
+    if (!navigator.clipboard?.writeText) {
+      setInviteStatus({
+        type: 'error',
+        message: 'Браузер не разрешил копирование. Скопируйте адрес из строки браузера.'
+      });
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setInviteStatus({ type: 'success', message: 'Ссылка скопирована' });
+    } catch {
+      setInviteStatus({
+        type: 'error',
+        message: 'Не удалось скопировать ссылку. Скопируйте адрес из строки браузера.'
+      });
+    }
+  }
+
+  async function handleLeaveRoom() {
+    if (isLeaving) {
+      return;
+    }
+
+    setIsLeaving(true);
+    await room.leaveRoom();
+    peers.closeAllPeerConnections();
+    localMedia.stopLocalMedia();
+    onGoHome();
+  }
+
   return (
     <main className="room-shell">
       <header className="room-topbar">
@@ -147,10 +203,25 @@ function RoomShell({ roomId, displayName, onGoHome }) {
           <p className="eyebrow">Комната</p>
           <h1>{roomId}</h1>
         </div>
-        <div className="room-meta" aria-label="Состояние комнаты">
-          <span>{room.status === 'joined' ? 'Подключено' : 'Подключение'}</span>
-          <span>{room.participants.length}/4 участника</span>
-          <span>{displayName}</span>
+        <div className="room-topbar-actions">
+          <div className="room-meta" aria-label="Состояние комнаты">
+            <span>{room.status === 'joined' ? 'Подключено' : 'Подключение'}</span>
+            <span>{room.participants.length}/4 участника</span>
+            <span>{displayName}</span>
+          </div>
+          <button
+            type="button"
+            className="invite-button"
+            onClick={handleCopyInviteLink}
+            aria-label="Скопировать ссылку приглашения"
+            title="Скопировать ссылку приглашения"
+          >
+            {inviteStatus.type === 'success' ? <CopyCheck size={18} /> : <Copy size={18} />}
+            <span>Ссылка</span>
+          </button>
+          <p className={`invite-status ${inviteStatus.type}`} aria-live="polite">
+            {inviteStatus.message}
+          </p>
         </div>
       </header>
       <section className="room-main" aria-label="Комната видеочата">
@@ -162,6 +233,9 @@ function RoomShell({ roomId, displayName, onGoHome }) {
             {room.status === 'error' ? <RoomError message={room.error} onRetry={room.retry} /> : null}
             {room.status === 'room-full' ? (
               <RoomError message="Комната заполнена" actionLabel="Повторить вход" onRetry={room.retry} />
+            ) : null}
+            {room.status === 'display-name-taken' ? (
+              <RoomError message={room.error} actionLabel="Повторить вход" onRetry={room.retry} />
             ) : null}
             {room.status === 'joined' ? (
               <VideoGrid
@@ -197,38 +271,73 @@ function RoomShell({ roomId, displayName, onGoHome }) {
             <button
               type="button"
               className="icon-button danger"
-              aria-label="Выйти"
-              title="Выйти"
-              onClick={onGoHome}
+              aria-label={isLeaving ? 'Выход из комнаты' : 'Выйти'}
+              title={isLeaving ? 'Выход из комнаты' : 'Выйти'}
+              disabled={isLeaving}
+              onClick={handleLeaveRoom}
             >
               <LogOut size={20} />
             </button>
           </div>
         </div>
         <aside className="room-sidebar">
-          <section className="participants-panel" aria-labelledby="participants-title">
-            <h2 id="participants-title">Участники</h2>
-            {room.participants.length > 0 ? (
-              <ul>
-                {room.participants.map((participant) => (
-                  <li key={participant.id}>
-                    <span>{participant.displayName}</span>
-                    <span className="participant-media">
-                      {participant.media?.audioEnabled ? 'микрофон вкл.' : 'микрофон выкл.'}
-                      {' · '}
-                      {participant.media?.videoEnabled ? 'камера вкл.' : 'камера выкл.'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>Пока никого нет</p>
-            )}
-          </section>
+          <ParticipantList participants={room.participants} localParticipantId={room.participantId} />
           <ChatPanel messages={room.messages} onSendMessage={room.sendChatMessage} />
         </aside>
       </section>
     </main>
+  );
+}
+
+function ParticipantList({ participants, localParticipantId }) {
+  return (
+    <section className="participants-panel" aria-labelledby="participants-title">
+      <div className="panel-title-row">
+        <h2 id="participants-title">Участники</h2>
+        <span>{participants.length}/4</span>
+      </div>
+      {participants.length > 0 ? (
+        <ul className="participants-list">
+          {participants.map((participant, index) => {
+            const isSelf = participant.id === localParticipantId;
+            const audioEnabled = Boolean(participant.media?.audioEnabled);
+            const videoEnabled = Boolean(participant.media?.videoEnabled);
+
+            return (
+              <li key={participant.id} className={isSelf ? 'is-self' : undefined}>
+                <span className="participant-avatar" aria-hidden="true">
+                  {getInitials(participant.displayName)}
+                </span>
+                <span className="participant-main">
+                  <span className="participant-name">
+                    {participant.displayName}
+                    {isSelf ? <span className="self-label">вы</span> : null}
+                  </span>
+                  <span className="participant-ordinal">
+                    <UserRound size={13} aria-hidden="true" />
+                    #{index + 1}
+                  </span>
+                </span>
+                <span className="participant-status" aria-label="Состояние медиа">
+                  {audioEnabled ? (
+                    <Mic size={14} aria-label="Микрофон включен" />
+                  ) : (
+                    <MicOff size={14} aria-label="Микрофон выключен" />
+                  )}
+                  {videoEnabled ? (
+                    <Video size={14} aria-label="Камера включена" />
+                  ) : (
+                    <VideoOff size={14} aria-label="Камера выключена" />
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p>Пока никого нет</p>
+      )}
+    </section>
   );
 }
 
@@ -338,27 +447,90 @@ function VideoGrid({
 }
 
 function VideoTile({ displayName, stream, media, error = '', isMuted = false, isSelf = false }) {
-  const videoRef = useRef(null);
+  const mediaRef = useRef(null);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const hasLiveVideo = hasLiveVideoTrack(stream, media);
   const audioMuted = isAudioMuted(media);
+  const shouldRenderMediaElement = Boolean(stream && (hasLiveVideo || (!isSelf && !audioMuted)));
   const fallbackLabel = getVideoFallbackLabel(media);
 
   useEffect(() => {
-    if (videoRef.current && videoRef.current.srcObject !== stream) {
-      videoRef.current.srcObject = stream ?? null;
+    const mediaElement = mediaRef.current;
+
+    setAutoplayBlocked(false);
+
+    if (!mediaElement) {
+      return undefined;
     }
-  }, [stream]);
+
+    if (mediaElement.srcObject !== stream) {
+      mediaElement.srcObject = stream ?? null;
+    }
+
+    if (!stream) {
+      return undefined;
+    }
+
+    const playPromise = mediaElement.play();
+
+    if (playPromise) {
+      playPromise.catch(() => {
+        if (!isSelf && !audioMuted) {
+          setAutoplayBlocked(true);
+        }
+      });
+    }
+
+    return undefined;
+  }, [audioMuted, hasLiveVideo, isSelf, stream, shouldRenderMediaElement]);
+
+  async function handleEnableSound() {
+    try {
+      await mediaRef.current?.play();
+      setAutoplayBlocked(false);
+    } catch {
+      setAutoplayBlocked(true);
+    }
+  }
+
+  function renderMediaElement() {
+    if (!shouldRenderMediaElement) {
+      return null;
+    }
+
+    if (hasLiveVideo) {
+      return <video ref={mediaRef} autoPlay playsInline muted={isMuted} />;
+    }
+
+    return <audio ref={mediaRef} autoPlay />;
+  }
+
+  function renderFallback() {
+    if (hasLiveVideo) {
+      return null;
+    }
+
+    return (
+      <div className="video-fallback" aria-label={`${displayName}: ${fallbackLabel}`}>
+        <span>{getInitials(displayName)}</span>
+        <p>{fallbackLabel}</p>
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    if (!autoplayBlocked || !audioMuted) {
+      return undefined;
+    }
+
+    setAutoplayBlocked(false);
+    return undefined;
+  }, [audioMuted, autoplayBlocked]);
 
   return (
     <article className="video-tile">
-      {hasLiveVideo ? (
-        <video ref={videoRef} autoPlay playsInline muted={isMuted} />
-      ) : (
-        <div className="video-fallback" aria-label={`${displayName}: ${fallbackLabel}`}>
-          <span>{getInitials(displayName)}</span>
-          <p>{fallbackLabel}</p>
-        </div>
-      )}
+      {renderMediaElement()}
+      {renderFallback()}
       <div className="tile-overlay">
         <span>{isSelf ? `${displayName} (вы)` : displayName}</span>
         <span className="tile-status-icons" aria-label="Состояние медиа">
@@ -366,6 +538,12 @@ function VideoTile({ displayName, stream, media, error = '', isMuted = false, is
           {!hasLiveVideo ? <VideoOff size={16} aria-label="Камера выключена" /> : null}
         </span>
       </div>
+      {autoplayBlocked ? (
+        <button type="button" className="sound-button" onClick={handleEnableSound}>
+          <Volume2 size={18} />
+          <span>Включить звук</span>
+        </button>
+      ) : null}
       {error ? <p className="tile-error">{error}</p> : null}
     </article>
   );
