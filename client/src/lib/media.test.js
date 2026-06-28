@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  getMediaDeviceErrorMessage,
   getMediaErrorCode,
   getMediaStatus,
   isWebRtcSupported,
@@ -41,6 +42,15 @@ describe('getMediaErrorCode', () => {
     expect(getMediaErrorCode({ name: 'NotReadableError' })).toBe('MEDIA_DEVICE_BUSY');
     expect(getMediaErrorCode({ name: 'OtherError' })).toBe('MEDIA_UNKNOWN_ERROR');
     expect(MEDIA_ERROR_MESSAGES.MEDIA_PERMISSION_DENIED).toBe('Нет доступа к камере или микрофону');
+  });
+});
+
+describe('getMediaDeviceErrorMessage', () => {
+  it('builds device-specific media error messages', () => {
+    expect(getMediaDeviceErrorMessage('audio', 'MEDIA_PERMISSION_DENIED')).toBe('Нет доступа к микрофону');
+    expect(getMediaDeviceErrorMessage('video', 'MEDIA_PERMISSION_DENIED')).toBe('Нет доступа к камере');
+    expect(getMediaDeviceErrorMessage('audio', 'MEDIA_DEVICE_NOT_FOUND')).toBe('Микрофон не найден');
+    expect(getMediaDeviceErrorMessage('video', 'MEDIA_DEVICE_BUSY')).toBe('Камера недоступна');
   });
 });
 

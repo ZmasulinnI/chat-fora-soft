@@ -427,7 +427,14 @@ input[aria-invalid="true"] {
   margin-top: 1px;
 }
 
-.media-warning span {
+.media-warning div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.media-warning-item {
+  display: block;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -463,7 +470,7 @@ input[aria-invalid="true"] {
 }
 
 .icon-button:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.56;
 }
 

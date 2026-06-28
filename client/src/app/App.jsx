@@ -142,6 +142,9 @@ function RoomShell({ roomId, displayName, onGoHome }) {
   const [inviteStatus, setInviteStatus] = useState({ type: 'idle', message: '' });
   const [isLeaving, setIsLeaving] = useState(false);
   const localMedia = useLocalMedia();
+  const mediaWarnings = getLocalMediaWarnings(localMedia);
+  const audioControlDisabled = Boolean(localMedia.audioError) || localMedia.status === 'unsupported';
+  const videoControlDisabled = Boolean(localMedia.videoError) || localMedia.status === 'unsupported';
   const canJoinRoom = localMedia.status === 'ready' || localMedia.status === 'unsupported';
   const room = useRoom({ roomId, displayName, media: localMedia, enabled: canJoinRoom });
   const peers = usePeerConnections({
@@ -225,11 +228,17 @@ function RoomShell({ roomId, displayName, onGoHome }) {
           </p>
         </div>
       </header>
-      {localMedia.error ? (
-        <p className="media-warning" role="status">
+      {mediaWarnings.length > 0 ? (
+        <div className="media-warning" role="status">
           <AlertTriangle size={18} aria-hidden="true" />
-          <span>{localMedia.error}</span>
-        </p>
+          <div>
+            {mediaWarnings.map((warning) => (
+              <span key={warning.kind} className="media-warning-item">
+                {warning.message}
+              </span>
+            ))}
+          </div>
+        </div>
       ) : null}
       <section className="room-main" aria-label="Комната видеочата">
         <div className="video-stage">
@@ -259,8 +268,9 @@ function RoomShell({ roomId, displayName, onGoHome }) {
             <button
               type="button"
               className="icon-button"
-              aria-label={localMedia.audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
-              title={localMedia.audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+              aria-label={audioControlDisabled ? 'Микрофон недоступен' : localMedia.audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+              title={audioControlDisabled ? localMedia.audioError : localMedia.audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+              disabled={audioControlDisabled}
               onClick={localMedia.toggleAudio}
             >
               {localMedia.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
@@ -268,8 +278,9 @@ function RoomShell({ roomId, displayName, onGoHome }) {
             <button
               type="button"
               className="icon-button"
-              aria-label={localMedia.videoEnabled ? 'Выключить камеру' : 'Включить камеру'}
-              title={localMedia.videoEnabled ? 'Выключить камеру' : 'Включить камеру'}
+              aria-label={videoControlDisabled ? 'Камера недоступна' : localMedia.videoEnabled ? 'Выключить камеру' : 'Включить камеру'}
+              title={videoControlDisabled ? localMedia.videoError : localMedia.videoEnabled ? 'Выключить камеру' : 'Включить камеру'}
+              disabled={videoControlDisabled}
               onClick={localMedia.toggleVideo}
             >
               {localMedia.videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
@@ -293,6 +304,33 @@ function RoomShell({ roomId, displayName, onGoHome }) {
       </section>
     </main>
   );
+}
+
+function getLocalMediaWarnings(localMedia) {
+  const warnings = [];
+
+  if (localMedia.audioError) {
+    warnings.push({
+      kind: 'audio',
+      message: localMedia.audioError
+    });
+  }
+
+  if (localMedia.videoError) {
+    warnings.push({
+      kind: 'video',
+      message: localMedia.videoError
+    });
+  }
+
+  if (warnings.length === 0 && localMedia.error) {
+    warnings.push({
+      kind: 'general',
+      message: localMedia.error
+    });
+  }
+
+  return warnings;
 }
 
 function ParticipantList({ participants, localParticipantId }) {

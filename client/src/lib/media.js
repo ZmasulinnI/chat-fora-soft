@@ -31,6 +31,21 @@ export function getMediaErrorCode(error) {
   }
 }
 
+export function getMediaDeviceErrorMessage(kind, errorCode) {
+  const deviceName = kind === 'audio' ? 'микрофону' : 'камере';
+
+  switch (errorCode) {
+    case 'MEDIA_PERMISSION_DENIED':
+      return `Нет доступа к ${deviceName}`;
+    case 'MEDIA_DEVICE_NOT_FOUND':
+      return kind === 'audio' ? 'Микрофон не найден' : 'Камера не найдена';
+    case 'MEDIA_DEVICE_BUSY':
+      return kind === 'audio' ? 'Микрофон недоступен' : 'Камера недоступна';
+    default:
+      return `Не удалось получить доступ к ${deviceName}`;
+  }
+}
+
 export function getMediaStatus(stream) {
   const audioEnabled = Boolean(
     stream?.getAudioTracks?.().some((track) => track.readyState === 'live' && track.enabled !== false)

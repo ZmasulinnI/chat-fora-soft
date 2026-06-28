@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import {
+  getMediaDeviceErrorMessage,
   getMediaErrorCode,
   getMediaStatus,
   isWebRtcSupported,
@@ -12,7 +13,9 @@ const initialLocalMediaState = {
   stream: null,
   audioEnabled: false,
   videoEnabled: false,
-  error: ''
+  error: '',
+  audioError: '',
+  videoError: ''
 };
 
 function localMediaReducer(state, action) {
@@ -23,12 +26,26 @@ function localMediaReducer(state, action) {
         status: 'requesting'
       };
     case 'ready':
+      {
+        const audioError = action.audioError ?? state.audioError;
+        const videoError = action.videoError ?? state.videoError;
+
+        return {
+          status: 'ready',
+          stream: action.stream,
+          audioEnabled: action.audioEnabled,
+          videoEnabled: action.videoEnabled,
+          error: action.error ?? '',
+          audioError,
+          videoError
+        };
+      }
+    case 'device-error':
       return {
+        ...state,
         status: 'ready',
-        stream: action.stream,
-        audioEnabled: action.audioEnabled,
-        videoEnabled: action.videoEnabled,
-        error: action.error ?? ''
+        audioError: action.kind === 'audio' ? action.message : state.audioError,
+        videoError: action.kind === 'video' ? action.message : state.videoError
       };
     case 'unsupported':
       return {
@@ -40,7 +57,9 @@ function localMediaReducer(state, action) {
       return {
         ...initialLocalMediaState,
         status: 'ready',
-        error: action.message
+        error: action.message,
+        audioError: action.message,
+        videoError: action.message
       };
     default:
       return state;
@@ -79,7 +98,8 @@ export function useLocalMedia() {
           type: 'ready',
           stream: result.stream,
           ...getMediaStatus(result.stream),
-          error: result.warning
+          audioError: result.audioError,
+          videoError: result.videoError
         });
       } catch (error) {
         const errorCode = getMediaErrorCode(error);
@@ -107,11 +127,19 @@ export function useLocalMedia() {
   const stopLocalMedia = useCallback(() => {
     stopMediaStream(streamRef.current);
     streamRef.current = null;
-    dispatch({ type: 'ready', stream: null, audioEnabled: false, videoEnabled: false, error: '' });
+    dispatch({
+      type: 'ready',
+      stream: null,
+      audioEnabled: false,
+      videoEnabled: false,
+      error: '',
+      audioError: '',
+      videoError: ''
+    });
   }, []);
 
   const toggleAudio = useCallback(async () => {
-    if (!state.stream || state.status === 'unsupported') {
+    if (!state.stream || state.status === 'unsupported' || state.audioError) {
       return;
     }
 
@@ -123,7 +151,8 @@ export function useLocalMedia() {
         type: 'ready',
         stream: state.stream,
         ...getMediaStatus(state.stream),
-        error: state.error
+        error: state.error,
+        audioError: ''
       });
       return;
     }
@@ -141,20 +170,22 @@ export function useLocalMedia() {
         type: 'ready',
         stream: nextStream,
         ...getMediaStatus(nextStream),
-        error: state.error
+        error: state.error,
+        audioError: ''
       });
     } catch (error) {
       dispatch({
         type: 'ready',
         stream: state.stream,
         ...getMediaStatus(state.stream),
-        error: MEDIA_ERROR_MESSAGES[getMediaErrorCode(error)]
+        error: state.error,
+        audioError: getMediaDeviceErrorMessage('audio', getMediaErrorCode(error))
       });
     }
-  }, [state.audioEnabled, state.error, state.status, state.stream]);
+  }, [state.audioEnabled, state.audioError, state.error, state.status, state.stream]);
 
   const toggleVideo = useCallback(async () => {
-    if (!state.stream || state.status === 'unsupported') {
+    if (!state.stream || state.status === 'unsupported' || state.videoError) {
       return;
     }
 
@@ -167,7 +198,8 @@ export function useLocalMedia() {
         type: 'ready',
         stream: state.stream,
         ...getMediaStatus(state.stream),
-        error: state.error
+        error: state.error,
+        videoError: ''
       });
       return;
     }
@@ -185,7 +217,8 @@ export function useLocalMedia() {
         type: 'ready',
         stream: state.stream,
         ...getMediaStatus(state.stream),
-        error: state.error
+        error: state.error,
+        videoError: ''
       });
       return;
     }
@@ -203,17 +236,19 @@ export function useLocalMedia() {
         type: 'ready',
         stream: nextStream,
         ...getMediaStatus(nextStream),
-        error: state.error
+        error: state.error,
+        videoError: ''
       });
     } catch (error) {
       dispatch({
         type: 'ready',
         stream: state.stream,
         ...getMediaStatus(state.stream),
-        error: MEDIA_ERROR_MESSAGES[getMediaErrorCode(error)]
+        error: state.error,
+        videoError: getMediaDeviceErrorMessage('video', getMediaErrorCode(error))
       });
     }
-  }, [state.error, state.status, state.stream, state.videoEnabled]);
+  }, [state.error, state.status, state.stream, state.videoEnabled, state.videoError]);
 
   return {
     ...state,
@@ -224,44 +259,31 @@ export function useLocalMedia() {
 }
 
 async function acquireLocalMedia() {
-  try {
-    return {
-      stream: await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true
-      }),
-      warning: ''
-    };
-  } catch (error) {
-    const errorCode = getMediaErrorCode(error);
+  const [audioResult, videoResult] = await Promise.allSettled([
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false }),
+    navigator.mediaDevices.getUserMedia({ audio: false, video: true })
+  ]);
+  const tracks = [];
+  let audioError = '';
+  let videoError = '';
 
-    if (errorCode === 'MEDIA_PERMISSION_DENIED') {
-      throw error;
-    }
-
-    const [audioResult, videoResult] = await Promise.allSettled([
-      navigator.mediaDevices.getUserMedia({ audio: true, video: false }),
-      navigator.mediaDevices.getUserMedia({ audio: false, video: true })
-    ]);
-    const tracks = [];
-
-    if (audioResult.status === 'fulfilled') {
-      tracks.push(...audioResult.value.getAudioTracks());
-    }
-
-    if (videoResult.status === 'fulfilled') {
-      tracks.push(...videoResult.value.getVideoTracks());
-    }
-
-    if (tracks.length === 0) {
-      throw error;
-    }
-
-    return {
-      stream: new MediaStream(tracks),
-      warning: MEDIA_ERROR_MESSAGES[errorCode]
-    };
+  if (audioResult.status === 'fulfilled') {
+    tracks.push(...audioResult.value.getAudioTracks());
+  } else {
+    audioError = getMediaDeviceErrorMessage('audio', getMediaErrorCode(audioResult.reason));
   }
+
+  if (videoResult.status === 'fulfilled') {
+    tracks.push(...videoResult.value.getVideoTracks());
+  } else {
+    videoError = getMediaDeviceErrorMessage('video', getMediaErrorCode(videoResult.reason));
+  }
+
+  return {
+    stream: new MediaStream(tracks),
+    audioError,
+    videoError
+  };
 }
 
 function attachTrackEndHandlers(stream, dispatch) {
@@ -269,11 +291,12 @@ function attachTrackEndHandlers(stream, dispatch) {
     track.addEventListener(
       'ended',
       () => {
+        const kind = track.kind === 'audio' ? 'audio' : 'video';
+
         dispatch({
-          type: 'ready',
-          stream,
-          ...getMediaStatus(stream),
-          error: 'Устройство стало недоступно'
+          type: 'device-error',
+          kind,
+          message: kind === 'audio' ? 'Микрофон стал недоступен' : 'Камера стала недоступна'
         });
       },
       { once: true }
