@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Copy,
   CopyCheck,
   LogOut,
@@ -224,11 +225,16 @@ function RoomShell({ roomId, displayName, onGoHome }) {
           </p>
         </div>
       </header>
+      {localMedia.error ? (
+        <p className="media-warning" role="status">
+          <AlertTriangle size={18} aria-hidden="true" />
+          <span>{localMedia.error}</span>
+        </p>
+      ) : null}
       <section className="room-main" aria-label="Комната видеочата">
         <div className="video-stage">
           <div className="stage-body">
             {localMedia.status === 'requesting' ? <p>Запрашиваем доступ к камере и микрофону...</p> : null}
-            {localMedia.error ? <p className="media-warning">{localMedia.error}</p> : null}
             {canJoinRoom && room.status === 'connecting' ? <p>Подключение...</p> : null}
             {room.status === 'error' ? <RoomError message={room.error} onRetry={room.retry} /> : null}
             {room.status === 'room-full' ? (
