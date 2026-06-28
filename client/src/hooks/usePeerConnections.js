@@ -5,6 +5,7 @@ const STUN_URLS = import.meta.env.VITE_STUN_URLS ?? DEFAULT_STUN_URLS;
 
 export function usePeerConnections({ socket, roomId, participantId, participants, localStream }) {
   const peerConnectionsRef = useRef(new Map());
+  const pendingOffersRef = useRef(new Set());
   const localStreamRef = useRef(localStream);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [peerErrors, setPeerErrors] = useState({});
@@ -105,22 +106,69 @@ export function usePeerConnections({ socket, roomId, participantId, participants
     [roomId, socket]
   );
 
+  const createOfferForParticipant = useCallback(
+    async (remoteParticipantId) => {
+      if (!socket || !participantId || !shouldInitiateConnection(participantId, remoteParticipantId)) {
+        return;
+      }
+
+      const peerConnection = getOrCreatePeerConnection(remoteParticipantId);
+
+      if (!peerConnection || pendingOffersRef.current.has(remoteParticipantId)) {
+        return;
+      }
+
+      if (peerConnection.signalingState !== 'stable' || peerConnection.localDescription) {
+        return;
+      }
+
+      pendingOffersRef.current.add(remoteParticipantId);
+
+      try {
+        await syncLocalTracks(peerConnection, localStreamRef.current);
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit('webrtc:offer', {
+          roomId,
+          to: remoteParticipantId,
+          payload: offer
+        });
+      } catch {
+        setPeerErrors((currentErrors) => ({
+          ...currentErrors,
+          [remoteParticipantId]: 'Не удалось создать WebRTC offer'
+        }));
+      } finally {
+        pendingOffersRef.current.delete(remoteParticipantId);
+      }
+    },
+    [getOrCreatePeerConnection, participantId, roomId, socket]
+  );
+
   useEffect(() => {
     for (const participant of participants) {
-      if (participant.id !== participantId) {
-        const peerConnection = peerConnectionsRef.current.get(participant.id);
-
-        if (peerConnection) {
-          syncLocalTracks(peerConnection, localStream).catch(() => {
-            setPeerErrors((currentErrors) => ({
-              ...currentErrors,
-              [participant.id]: 'Не удалось обновить локальные медиатреки'
-            }));
-          });
-        }
+      if (!participantId || participant.id === participantId) {
+        continue;
       }
+
+      const peerConnection = getOrCreatePeerConnection(participant.id);
+
+      if (!peerConnection) {
+        continue;
+      }
+
+      if (isPeerConnectionNegotiated(peerConnection)) {
+        syncLocalTracks(peerConnection, localStream).catch(() => {
+          setPeerErrors((currentErrors) => ({
+            ...currentErrors,
+            [participant.id]: 'Не удалось обновить локальные медиатреки'
+          }));
+        });
+      }
+
+      createOfferForParticipant(participant.id);
     }
-  }, [localStream, participantId, participants]);
+  }, [createOfferForParticipant, getOrCreatePeerConnection, localStream, participantId, participants]);
 
   useEffect(() => {
     if (!socket || !participantId) {
@@ -132,27 +180,7 @@ export function usePeerConnections({ socket, roomId, participantId, participants
         return;
       }
 
-      const peerConnection = getOrCreatePeerConnection(participant.id);
-
-      if (!peerConnection) {
-        return;
-      }
-
-      try {
-        await syncLocalTracks(peerConnection, localStreamRef.current);
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        socket.emit('webrtc:offer', {
-          roomId,
-          to: participant.id,
-          payload: offer
-        });
-      } catch {
-        setPeerErrors((currentErrors) => ({
-          ...currentErrors,
-          [participant.id]: 'Не удалось создать WebRTC offer'
-        }));
-      }
+      await createOfferForParticipant(participant.id);
     }
 
     async function handleOffer({ from, payload }) {
@@ -231,7 +259,7 @@ export function usePeerConnections({ socket, roomId, participantId, participants
       socket.off('webrtc:ice-candidate', handleIceCandidate);
       socket.off('participant:left', handleParticipantLeft);
     };
-  }, [closePeerConnection, getOrCreatePeerConnection, participantId, roomId, socket]);
+  }, [closePeerConnection, createOfferForParticipant, getOrCreatePeerConnection, participantId, roomId, socket]);
 
   useEffect(() => {
     const activeRemoteIds = new Set(
@@ -312,6 +340,14 @@ export function getRemoteStreamFromTrackEvent(existingStream, event) {
   }
 
   return remoteStream;
+}
+
+export function shouldInitiateConnection(localParticipantId, remoteParticipantId) {
+  return String(localParticipantId) < String(remoteParticipantId);
+}
+
+function isPeerConnectionNegotiated(peerConnection) {
+  return Boolean(peerConnection.localDescription || peerConnection.remoteDescription);
 }
 
 function ensureVideoSender(peerConnection, preferredVideoTrack, localStream) {

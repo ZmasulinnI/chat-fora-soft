@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   getRemoteStreamFromTrackEvent,
+  shouldInitiateConnection,
   syncLocalTracks
 } from './usePeerConnections.js';
 
@@ -138,6 +139,13 @@ describe('getRemoteStreamFromTrackEvent', () => {
 
     expect(nextStream).toBe(remoteStream);
     expect(sameStream.getTracks()).toEqual([audioTrack, videoTrack]);
+  });
+});
+
+describe('shouldInitiateConnection', () => {
+  it('chooses only one side as the offer initiator for a participant pair', () => {
+    expect(shouldInitiateConnection('socket-a', 'socket-b')).toBe(true);
+    expect(shouldInitiateConnection('socket-b', 'socket-a')).toBe(false);
   });
 });
 

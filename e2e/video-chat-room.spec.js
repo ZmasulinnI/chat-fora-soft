@@ -37,8 +37,10 @@ test('creates a room, joins a second participant and exchanges chat', async ({ b
 test('shows the first participant video to a newly joined participant', async ({ browser }) => {
   const firstContext = await browser.newContext();
   const secondContext = await browser.newContext();
+  const thirdContext = await browser.newContext();
   const firstPage = await firstContext.newPage();
   const secondPage = await secondContext.newPage();
+  const thirdPage = await thirdContext.newPage();
 
   try {
     await firstPage.goto('/');
@@ -51,7 +53,16 @@ test('shows the first participant video to a newly joined participant', async ({
 
     await expectRemoteVideoReady(secondPage, 'Алекс');
     await expectRemoteVideoReady(firstPage, 'Мария');
+
+    await thirdPage.goto(roomUrl);
+    await enterName(thirdPage, 'Никита', 'Войти');
+
+    await expectRemoteVideoReady(firstPage, 'Никита');
+    await expectRemoteVideoReady(secondPage, 'Никита');
+    await expectRemoteVideoReady(thirdPage, 'Алекс');
+    await expectRemoteVideoReady(thirdPage, 'Мария');
   } finally {
+    await thirdContext.close();
     await secondContext.close();
     await firstContext.close();
   }
