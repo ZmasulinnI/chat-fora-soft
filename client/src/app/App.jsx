@@ -4,8 +4,10 @@ import {
   Copy,
   CopyCheck,
   LogOut,
+  MessageCircle,
   Mic,
   MicOff,
+  X,
   UserRound,
   Video,
   VideoOff,
@@ -141,6 +143,7 @@ function NameGate({ title, submitLabel, onSubmit }) {
 function RoomShell({ roomId, displayName, onGoHome }) {
   const [inviteStatus, setInviteStatus] = useState({ type: 'idle', message: '' });
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const localMedia = useLocalMedia();
   const mediaWarnings = getLocalMediaWarnings(localMedia);
   const audioControlDisabled = Boolean(localMedia.audioError) || localMedia.status === 'unsupported';
@@ -267,6 +270,15 @@ function RoomShell({ roomId, displayName, onGoHome }) {
           <div className="media-controls" aria-label="Управление звонком">
             <button
               type="button"
+              className="icon-button mobile-chat-toggle"
+              aria-label="Открыть чат"
+              title="Открыть чат"
+              onClick={() => setIsChatOpen(true)}
+            >
+              <MessageCircle size={20} />
+            </button>
+            <button
+              type="button"
               className="icon-button"
               aria-label={audioControlDisabled ? 'Микрофон недоступен' : localMedia.audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
               title={audioControlDisabled ? localMedia.audioError : localMedia.audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
@@ -297,7 +309,22 @@ function RoomShell({ roomId, displayName, onGoHome }) {
             </button>
           </div>
         </div>
-        <aside className="room-sidebar">
+        <button
+          type="button"
+          className={`sidebar-backdrop ${isChatOpen ? 'is-open' : ''}`}
+          aria-label="Закрыть чат"
+          onClick={() => setIsChatOpen(false)}
+        />
+        <aside className={`room-sidebar ${isChatOpen ? 'is-open' : ''}`}>
+          <button
+            type="button"
+            className="sidebar-close"
+            aria-label="Закрыть чат"
+            title="Закрыть чат"
+            onClick={() => setIsChatOpen(false)}
+          >
+            <X size={20} />
+          </button>
           <ParticipantList participants={room.participants} localParticipantId={room.participantId} />
           <ChatPanel messages={room.messages} onSendMessage={room.sendChatMessage} />
         </aside>
@@ -466,31 +493,66 @@ function VideoGrid({
   remoteStreams,
   peerErrors
 }) {
+  const [focusedTileId, setFocusedTileId] = useState('');
   const remoteParticipants = participants.filter((participant) => participant.id !== participantId);
+  const tiles = [
+    {
+      id: 'local',
+      displayName: localParticipant?.displayName ?? localDisplayName,
+      stream: localStream,
+      media: localParticipant?.media,
+      isMuted: true,
+      isSelf: true
+    },
+    ...remoteParticipants.map((participant) => ({
+      id: participant.id,
+      displayName: participant.displayName,
+      stream: remoteStreams[participant.id],
+      media: participant.media,
+      error: peerErrors[participant.id]
+    }))
+  ];
+  const visibleTiles = focusedTileId
+    ? tiles.filter((tile) => tile.id === focusedTileId)
+    : tiles;
+
+  function handleTileToggle(tileId) {
+    setFocusedTileId((currentTileId) => (currentTileId === tileId ? '' : tileId));
+  }
 
   return (
-    <div className="video-grid" data-count={Math.max(1, remoteParticipants.length + 1)}>
-      <VideoTile
-        displayName={localParticipant?.displayName ?? localDisplayName}
-        stream={localStream}
-        isMuted
-        isSelf
-        media={localParticipant?.media}
-      />
-      {remoteParticipants.map((participant) => (
+    <div
+      className="video-grid"
+      data-count={Math.max(1, visibleTiles.length)}
+      data-focused={focusedTileId ? 'true' : 'false'}
+    >
+      {visibleTiles.map((tile) => (
         <VideoTile
-          key={participant.id}
-          displayName={participant.displayName}
-          stream={remoteStreams[participant.id]}
-          media={participant.media}
-          error={peerErrors[participant.id]}
+          key={tile.id}
+          displayName={tile.displayName}
+          stream={tile.stream}
+          media={tile.media}
+          error={tile.error}
+          isMuted={tile.isMuted}
+          isSelf={tile.isSelf}
+          isFocused={focusedTileId === tile.id}
+          onToggleFocus={() => handleTileToggle(tile.id)}
         />
       ))}
     </div>
   );
 }
 
-function VideoTile({ displayName, stream, media, error = '', isMuted = false, isSelf = false }) {
+function VideoTile({
+  displayName,
+  stream,
+  media,
+  error = '',
+  isMuted = false,
+  isSelf = false,
+  isFocused = false,
+  onToggleFocus
+}) {
   const mediaRef = useRef(null);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const hasLiveVideo = hasLiveVideoTrack(stream, media);
@@ -537,6 +599,13 @@ function VideoTile({ displayName, stream, media, error = '', isMuted = false, is
     }
   }
 
+  function handleKeyDown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onToggleFocus?.();
+    }
+  }
+
   function renderMediaElement() {
     if (!shouldRenderMediaElement) {
       return null;
@@ -572,7 +641,14 @@ function VideoTile({ displayName, stream, media, error = '', isMuted = false, is
   }, [audioMuted, autoplayBlocked]);
 
   return (
-    <article className="video-tile">
+    <article
+      className={`video-tile ${isFocused ? 'is-focused' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isFocused}
+      onClick={onToggleFocus}
+      onKeyDown={handleKeyDown}
+    >
       {renderMediaElement()}
       {renderFallback()}
       <div className="tile-overlay">
@@ -583,7 +659,14 @@ function VideoTile({ displayName, stream, media, error = '', isMuted = false, is
         </span>
       </div>
       {autoplayBlocked ? (
-        <button type="button" className="sound-button" onClick={handleEnableSound}>
+        <button
+          type="button"
+          className="sound-button"
+          onClick={(event) => {
+            event.stopPropagation();
+            handleEnableSound();
+          }}
+        >
           <Volume2 size={18} />
           <span>Включить звук</span>
         </button>

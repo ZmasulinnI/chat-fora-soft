@@ -165,6 +165,31 @@ test('shows room full error for the fifth participant', async ({ browser }) => {
   }
 });
 
+test('uses mobile video focus and chat drawer layout', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+
+  try {
+    await page.goto('/');
+    await enterName(page, 'Алекс', 'Создать комнату');
+
+    const localTile = page.locator('.video-tile').filter({ hasText: 'Алекс' });
+
+    await expect(page.locator('.room-sidebar')).not.toHaveClass(/is-open/);
+    await page.getByRole('button', { name: 'Открыть чат' }).click();
+    await expect(page.locator('.room-sidebar')).toHaveClass(/is-open/);
+    await page.getByRole('button', { name: 'Закрыть чат' }).click();
+    await expect(page.locator('.room-sidebar')).not.toHaveClass(/is-open/);
+
+    await localTile.click();
+    await expect(page.locator('.video-grid')).toHaveAttribute('data-focused', 'true');
+    await localTile.click();
+    await expect(page.locator('.video-grid')).toHaveAttribute('data-focused', 'false');
+  } finally {
+    await context.close();
+  }
+});
+
 async function enterName(page, displayName, buttonName) {
   await submitName(page, displayName, buttonName);
   await expect(page.getByText('Подключено')).toBeVisible();
