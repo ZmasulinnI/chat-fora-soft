@@ -121,7 +121,12 @@ test('shows duplicate display name error inside a room', async ({ browser }) => 
     await submitName(secondPage, 'Алекс', 'Войти');
 
     await expect(secondPage.getByText('Этот никнейм уже занят в комнате')).toBeVisible();
-    await expect(secondPage.getByRole('button', { name: 'Повторить вход' })).toBeVisible();
+    await expect(secondPage.getByRole('button', { name: 'Войти' })).toBeVisible();
+    await expect(secondPage.getByText('Подключено')).not.toBeVisible();
+
+    await secondPage.getByLabel('Имя').fill('Мария');
+    await secondPage.getByRole('button', { name: 'Войти' }).click();
+    await expect(secondPage.getByText('Подключено')).toBeVisible();
   } finally {
     await secondContext.close();
     await firstContext.close();

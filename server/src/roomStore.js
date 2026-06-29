@@ -103,6 +103,20 @@ export class RoomStore {
     return participant ? copyParticipant(participant) : null;
   }
 
+  isDisplayNameAvailable(roomId, displayName, participantId = '') {
+    const normalizedRoomId = validateRoomId(roomId);
+    const normalizedDisplayName = normalizeDisplayName(displayName);
+    const normalizedParticipantId = participantId ? this.#validateParticipantId(participantId) : '';
+    const room = this.rooms.get(normalizedRoomId);
+
+    return {
+      available: room
+        ? !this.#isDisplayNameTaken(room, normalizedParticipantId, normalizedDisplayName)
+        : true,
+      displayName: normalizedDisplayName
+    };
+  }
+
   updateParticipantMedia(roomId, participantId, media) {
     const normalizedRoomId = validateRoomId(roomId);
     const normalizedParticipantId = this.#validateParticipantId(participantId);
@@ -201,16 +215,18 @@ export class RoomStore {
   }
 
   #assertDisplayNameAvailable(room, participantId, displayName) {
-    const isNameTaken = [...room.participants.values()].some(
-      (participant) => participant.id !== participantId && participant.displayName === displayName
-    );
-
-    if (isNameTaken) {
+    if (this.#isDisplayNameTaken(room, participantId, displayName)) {
       throw new RoomStoreError('DISPLAY_NAME_TAKEN', 'Этот никнейм уже занят в комнате', {
         roomId: room.id,
         displayName
       });
     }
+  }
+
+  #isDisplayNameTaken(room, participantId, displayName) {
+    return [...room.participants.values()].some(
+      (participant) => participant.id !== participantId && participant.displayName === displayName
+    );
   }
 
   #validateParticipantId(participantId) {

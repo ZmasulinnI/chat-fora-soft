@@ -28,6 +28,8 @@ import {
   isAudioMuted
 } from '../lib/videoTile.js';
 
+const SERVER_URL = import.meta.env.VITE_SOCKET_URL ?? 'http://localhost:3000';
+
 const buttonMotion = {
   whileHover: { y: -1 },
   whileTap: { scale: 0.96 },
@@ -96,6 +98,20 @@ export function App() {
     navigate(buildRoomPath(generateRoomId()));
   }
 
+  async function handleJoinRoom(roomId, nextDisplayName) {
+    const availability = await checkDisplayNameAvailability(roomId, nextDisplayName);
+
+    if (!availability.ok) {
+      return availability;
+    }
+
+    setDisplayName(availability.displayName ?? nextDisplayName);
+
+    return {
+      ok: true
+    };
+  }
+
   return (
     <AnimatePresence mode="wait">
       {route.name === 'room' && !displayName ? (
@@ -103,7 +119,8 @@ export function App() {
           <NameGate
             title="Войти в комнату"
             submitLabel="Войти"
-            onSubmit={(nextDisplayName) => setDisplayName(nextDisplayName)}
+            pendingLabel="Проверяем..."
+            onSubmit={(nextDisplayName) => handleJoinRoom(route.roomId, nextDisplayName)}
           />
         </AnimatedRoute>
       ) : null}
@@ -143,13 +160,52 @@ function AnimatedRoute({ children }) {
   );
 }
 
-function NameGate({ title, submitLabel, onSubmit }) {
+async function checkDisplayNameAvailability(roomId, displayName) {
+  try {
+    const response = await fetch(
+      `${SERVER_URL}/rooms/${encodeURIComponent(roomId)}/display-name-availability?displayName=${encodeURIComponent(displayName)}`
+    );
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok || !payload?.ok) {
+      return {
+        ok: false,
+        error: payload?.message ?? 'Не удалось проверить никнейм'
+      };
+    }
+
+    if (!payload.available) {
+      return {
+        ok: false,
+        error: 'Этот никнейм уже занят в комнате'
+      };
+    }
+
+    return {
+      ok: true,
+      displayName: payload.displayName
+    };
+  } catch {
+    return {
+      ok: false,
+      error: 'Не удалось проверить никнейм: сервер недоступен'
+    };
+  }
+}
+
+function NameGate({ title, submitLabel, pendingLabel = submitLabel, onSubmit }) {
   const [nameInput, setNameInput] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const feedback = useUiFeedback();
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
+
+    if (isSubmitting) {
+      return;
+    }
+
     feedback.playClick();
 
     const result = validateDisplayName(nameInput);
@@ -160,10 +216,21 @@ function NameGate({ title, submitLabel, onSubmit }) {
       return;
     }
 
-    feedback.playSuccess();
+    setIsSubmitting(true);
     setError('');
-    setNameInput(result.value);
-    onSubmit(result.value);
+
+    const submitResult = await onSubmit(result.value);
+
+    if (submitResult?.ok === false) {
+      feedback.playError();
+      setError(submitResult.error ?? 'Не удалось войти');
+      setIsSubmitting(false);
+      return;
+    }
+
+    feedback.playSuccess();
+    setNameInput(submitResult?.displayName ?? result.value);
+    setIsSubmitting(false);
   }
 
   return (
@@ -194,6 +261,7 @@ function NameGate({ title, submitLabel, onSubmit }) {
             maxLength={MAX_DISPLAY_NAME_LENGTH}
             placeholder="Алекс"
             value={nameInput}
+            disabled={isSubmitting}
             aria-invalid={Boolean(error)}
             aria-describedby={error ? 'display-name-error' : undefined}
             onChange={(event) => {
@@ -216,8 +284,8 @@ function NameGate({ title, submitLabel, onSubmit }) {
               </motion.p>
             ) : null}
           </AnimatePresence>
-          <motion.button type="submit" {...buttonMotion}>
-            {submitLabel}
+          <motion.button type="submit" disabled={isSubmitting} {...buttonMotion}>
+            {isSubmitting ? pendingLabel : submitLabel}
           </motion.button>
         </motion.form>
       </motion.section>

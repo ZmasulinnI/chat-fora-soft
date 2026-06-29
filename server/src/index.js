@@ -6,6 +6,7 @@ import express from 'express';
 import { Server } from 'socket.io';
 import { RoomStore } from './roomStore.js';
 import { registerRoomLifecycleHandlers } from './socketHandlers.js';
+import { toErrorResponse } from './validators.js';
 
 const envPaths = [resolve(process.cwd(), '.env'), resolve(process.cwd(), '..', '.env')];
 
@@ -55,6 +56,19 @@ app.get('/health', (_req, res) => {
     uptimeSeconds: Math.round(process.uptime()),
     timestamp: new Date().toISOString()
   });
+});
+
+app.get('/rooms/:roomId/display-name-availability', (req, res) => {
+  try {
+    const result = roomStore.isDisplayNameAvailable(req.params.roomId, req.query.displayName);
+
+    res.json({
+      ok: true,
+      ...result
+    });
+  } catch (error) {
+    res.status(400).json(toErrorResponse(error));
+  }
 });
 
 const io = new Server(httpServer, {

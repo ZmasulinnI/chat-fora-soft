@@ -183,6 +183,32 @@ describe('RoomStore.leaveRoom', () => {
   });
 });
 
+describe('RoomStore.isDisplayNameAvailable', () => {
+  it('treats display names in missing rooms as available', () => {
+    const store = createStore();
+
+    assert.deepEqual(store.isDisplayNameAvailable('room-1', ' Алекс '), {
+      available: true,
+      displayName: 'Алекс'
+    });
+  });
+
+  it('detects an occupied display name before joining', () => {
+    const store = createStore();
+
+    store.joinRoom({ roomId: 'room-1', participantId: 'socket-1', displayName: 'Алекс' });
+
+    assert.deepEqual(store.isDisplayNameAvailable('room-1', 'Алекс'), {
+      available: false,
+      displayName: 'Алекс'
+    });
+    assert.deepEqual(store.isDisplayNameAvailable('room-1', 'Мария'), {
+      available: true,
+      displayName: 'Мария'
+    });
+  });
+});
+
 describe('RoomStore messages and media', () => {
   it('stores user messages for the lifetime of the room', () => {
     const store = createStore();
