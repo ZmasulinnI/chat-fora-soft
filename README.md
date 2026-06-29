@@ -107,21 +107,147 @@
 
 ## 🚀 Начало работы
 
-### Требования
+Этот раздел описывает путь от чистой машины до первого успешного запуска. Все команды предполагают, что запуск выполняется из корня проекта, где находится главный `package.json`.
+
+### 1. Установить необходимое ПО
+
+Для работы нужны:
 
 | Инструмент | Версия |
 | --- | --- |
 | Node.js | `>=20` |
 | npm | версия из поставки Node.js |
+| Git | любая актуальная версия |
 | Браузер | Chrome, Edge или Firefox с WebRTC |
 
-### Установка
+Проверить установку:
+
+```bash
+node -v
+npm -v
+git --version
+```
+
+Если `node -v` показывает версию ниже `20`, лучше обновить Node.js перед установкой зависимостей.
+
+#### Windows
+
+Вариант 1: через официальный установщик.
+
+1. Скачать Node.js с https://nodejs.org.
+2. Выбрать LTS-версию `20` или выше.
+3. Установить Node.js вместе с npm.
+4. Перезапустить терминал.
+
+Вариант 2: через `winget`.
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+winget install Git.Git
+```
+
+Вариант 3: через `nvm-windows`, если нужно переключаться между версиями Node.js.
+
+```powershell
+nvm install 20
+nvm use 20
+```
+
+#### macOS
+
+Вариант 1: через официальный установщик Node.js с https://nodejs.org.
+
+Вариант 2: через Homebrew.
+
+```bash
+brew install node
+brew install git
+```
+
+Вариант 3: через `nvm`.
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+nvm install 20
+nvm use 20
+```
+
+#### Linux
+
+Вариант 1: через NodeSource для Ubuntu/Debian.
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs git
+```
+
+Вариант 2: через `nvm`.
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+nvm install 20
+nvm use 20
+```
+
+### 2. Получить проект
+
+Если проект находится в Git-репозитории:
+
+```bash
+git clone <repository-url>
+cd video-chat-room
+```
+
+Если проект передан архивом:
+
+1. Распаковать архив.
+2. Открыть терминал в папке проекта.
+3. Убедиться, что в текущей папке есть `package.json`.
+
+Проверка текущей папки:
+
+```bash
+pwd
+ls
+```
+
+Windows PowerShell:
+
+```powershell
+Get-Location
+Get-ChildItem
+```
+
+В корне проекта должны быть видны:
+
+```text
+client/
+server/
+e2e/
+package.json
+package-lock.json
+.env.example
+```
+
+### 3. Установить зависимости
+
+Устанавливать зависимости нужно один раз из корня проекта:
 
 ```bash
 npm install
 ```
 
-### Настройка `.env`
+Не нужно отдельно запускать `npm install` внутри `client` и `server`: проект использует npm workspaces, поэтому root-команда установит зависимости для всех частей.
+
+После установки появится папка:
+
+```text
+node_modules/
+```
+
+### 4. Создать `.env`
+
+Скопировать пример конфигурации:
 
 ```bash
 cp .env.example .env
@@ -133,31 +259,123 @@ cp .env.example .env
 Copy-Item .env.example .env
 ```
 
-### Запуск проекта
+Минимальный `.env` для локального запуска:
 
-Запуск клиента и сервера вместе:
+```env
+PORT=3000
+CLIENT_ORIGIN=http://localhost:5173
+VITE_SOCKET_URL=http://localhost:3000
+VITE_STUN_URLS=stun:stun.l.google.com:19302
+STUN_URLS=stun:stun.l.google.com:19302
+```
+
+### 5. Запустить сервер и клиент
+
+#### Способ A: одной командой
+
+Из корня проекта:
 
 ```bash
 npm run dev
 ```
 
-Или отдельно:
+Эта команда запускает оба workspace-процесса: `client` и `server`.
+
+#### Способ B: двумя терминалами
+
+Терминал 1 — сервер:
 
 ```bash
 npm run dev:server
 ```
 
+Терминал 2 — клиент:
+
 ```bash
 npm run dev:client
 ```
 
-После запуска:
+Ожидаемые адреса:
 
 | Сервис | URL |
 | --- | --- |
 | Клиент | `http://localhost:5173` |
 | Сервер | `http://localhost:3000` |
 | Healthcheck | `http://localhost:3000/health` |
+
+### 6. Проверить, что сервер работает
+
+Открыть в браузере:
+
+```text
+http://localhost:3000/health
+```
+
+Ожидаемый ответ похож на:
+
+```json
+{
+  "status": "ok",
+  "service": "video-chat-room-server",
+  "uptimeSeconds": 12,
+  "timestamp": "2026-06-29T00:00:00.000Z"
+}
+```
+
+Можно проверить из терминала.
+
+Windows PowerShell:
+
+```powershell
+Invoke-RestMethod http://localhost:3000/health
+```
+
+macOS/Linux:
+
+```bash
+curl http://localhost:3000/health
+```
+
+### 7. Первый запуск в браузере
+
+1. Открыть `http://localhost:5173`.
+2. Ввести никнейм.
+3. Нажать `Создать комнату`.
+4. Разрешить доступ к камере и микрофону.
+5. Скопировать ссылку комнаты.
+6. Открыть ссылку во второй вкладке или другом браузере.
+7. Ввести другой никнейм.
+8. Проверить, что:
+   - оба участника есть в списке;
+   - видны видеоплитки;
+   - чат доставляет сообщения;
+   - кнопки камеры и микрофона меняют состояние.
+
+### 8. Проверить тесты и сборку
+
+Unit и integration-тесты:
+
+```bash
+npm run test
+```
+
+Сборка:
+
+```bash
+npm run build
+```
+
+E2E-тесты:
+
+```bash
+npm run test:e2e
+```
+
+Если Playwright сообщает, что браузеры не установлены:
+
+```bash
+npx playwright install
+```
 
 ## 💻 Использование
 
@@ -225,6 +443,244 @@ VITE_SOCKET_URL=http://192.168.3.12:3000
 ```
 
 Важно: доступ к камере и микрофону в браузерах обычно требует защищённый контекст. Для другого устройства в локальной сети может понадобиться HTTPS, иначе браузер может показать, что WebRTC или media devices недоступны.
+
+## 🧯 Возможные проблемы при установке и запуске
+
+### `npm error enoent Could not read package.json`
+
+Причина: команда запущена не из корня проекта.
+
+Пример неправильного места:
+
+```text
+C:\Users\user
+```
+
+Нужно перейти в папку проекта:
+
+```powershell
+cd K:\Projects\testovoe
+npm run dev:server
+```
+
+Проверить, что вы в правильной папке:
+
+```bash
+ls package.json
+```
+
+Windows PowerShell:
+
+```powershell
+Test-Path package.json
+```
+
+Если команда возвращает `False`, значит терминал открыт не в корне проекта.
+
+### `EADDRINUSE: address already in use :::3000`
+
+Причина: порт `3000` уже занят другим процессом, чаще всего ранее запущенным сервером.
+
+Решение 1: остановить старый процесс.
+
+Windows PowerShell:
+
+```powershell
+$ports = 3000,5173
+$pids = (Get-NetTCPConnection -LocalPort $ports -State Listen -ErrorAction SilentlyContinue).OwningProcess | Sort-Object -Unique
+foreach ($pidToStop in $pids) { Stop-Process -Id $pidToStop -ErrorAction SilentlyContinue }
+```
+
+macOS/Linux:
+
+```bash
+for port in 3000 5173; do
+  pid=$(lsof -ti tcp:$port)
+  [ -n "$pid" ] && kill -9 $pid
+done
+```
+
+Решение 2: сменить порт сервера в `.env`.
+
+```env
+PORT=3001
+VITE_SOCKET_URL=http://localhost:3001
+```
+
+После изменения `.env` нужно перезапустить и сервер, и клиент.
+
+### Клиент открылся, но пишет, что сервер недоступен
+
+Проверьте:
+
+1. Запущен ли сервер:
+
+```bash
+npm run dev:server
+```
+
+2. Открывается ли healthcheck:
+
+```text
+http://localhost:3000/health
+```
+
+3. Совпадает ли `VITE_SOCKET_URL` с адресом сервера:
+
+```env
+VITE_SOCKET_URL=http://localhost:3000
+```
+
+4. Перезапущен ли клиент после изменения `.env`.
+
+Vite читает `VITE_*` переменные при запуске dev server, поэтому после изменения `.env` нужно остановить `npm run dev:client` и запустить его снова.
+
+### Ошибка CORS или подключение не проходит с другого устройства
+
+Если клиент открыт не на `localhost`, нужно добавить его origin в `CLIENT_ORIGIN`.
+
+Пример для локальной сети:
+
+```env
+CLIENT_ORIGIN=http://192.168.3.12:5173
+VITE_SOCKET_URL=http://192.168.3.12:3000
+```
+
+Если origins несколько:
+
+```env
+CLIENT_ORIGIN=http://localhost:5173,http://192.168.3.12:5173
+```
+
+После изменения `.env` перезапустить сервер.
+
+### На другом устройстве браузер пишет, что камера/микрофон не поддерживаются
+
+Частая причина: страница открыта по обычному `http://192.168.x.x`, а браузер требует защищённый контекст для camera/microphone APIs.
+
+Что работает обычно:
+
+- `http://localhost`;
+- HTTPS-домен;
+- HTTPS-туннель;
+- локальный HTTPS-сертификат.
+
+Что может не работать:
+
+- `http://192.168.x.x:5173` на телефоне или другом компьютере.
+
+При этом на основном ПК всё может работать, потому что `localhost` считается безопасным контекстом.
+
+### Браузер не просит доступ к камере или микрофону
+
+Проверьте разрешения сайта:
+
+- Chrome/Edge: значок слева от адресной строки → Site settings → Camera/Microphone.
+- Firefox: значок разрешений слева от адресной строки.
+
+Если доступ был запрещён ранее, браузер может больше не показывать prompt. Нужно вручную разрешить устройство или сбросить permissions для сайта.
+
+### Камера или микрофон заняты другим приложением
+
+Признаки:
+
+- приложение показывает `Камера недоступна`;
+- приложение показывает `Микрофон недоступен`;
+- браузер разрешение дал, но track не создаётся.
+
+Что проверить:
+
+- закрыть Zoom, Teams, Discord, OBS, другой браузер;
+- отключить виртуальные камеры;
+- выбрать другое устройство в настройках браузера или ОС;
+- перезапустить вкладку.
+
+### В комнате нет видео между участниками
+
+Проверить по порядку:
+
+1. Оба участника находятся в одной комнате.
+2. Никнеймы разные.
+3. У обоих разрешён доступ к камере.
+4. В консоли браузера нет ошибок WebRTC.
+5. `VITE_STUN_URLS` содержит корректный STUN URL.
+
+Пример:
+
+```env
+VITE_STUN_URLS=stun:stun.l.google.com:19302
+```
+
+В сложных сетях может понадобиться TURN-сервер. В текущей реализации TURN не настроен.
+
+### `npm install` завершается ошибкой
+
+Типовые причины:
+
+- старая версия Node.js;
+- повреждённый `node_modules`;
+- повреждённый `package-lock.json`;
+- проблемы с доступом к npm registry.
+
+Базовая диагностика:
+
+```bash
+node -v
+npm -v
+```
+
+Очистка и повторная установка:
+
+Windows PowerShell:
+
+```powershell
+Remove-Item -Recurse -Force node_modules
+npm install
+```
+
+macOS/Linux:
+
+```bash
+rm -rf node_modules
+npm install
+```
+
+Используйте этот способ только если обычный `npm install` не помогает.
+
+### Playwright E2E не запускается
+
+Если ошибка говорит, что браузеры Playwright не найдены:
+
+```bash
+npx playwright install
+```
+
+Если заняты порты `3000` или `5173`, освободите их и повторите:
+
+```bash
+npm run test:e2e
+```
+
+### PowerShell не узнаёт `node`, `npm` или `git`
+
+Возможные причины:
+
+- терминал был открыт до установки Node.js/Git;
+- Node.js/Git не добавлены в `PATH`;
+- установка завершилась с ошибкой.
+
+Что сделать:
+
+1. Закрыть и заново открыть PowerShell.
+2. Проверить:
+
+```powershell
+node -v
+npm -v
+git --version
+```
+
+3. Если команды всё ещё не найдены, переустановить Node.js/Git с добавлением в `PATH`.
 
 ## 🧩 Самые сложные решённые проблемы
 
