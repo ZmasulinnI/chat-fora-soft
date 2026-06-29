@@ -1,6 +1,6 @@
 # Video Chat Room
 
-> Browser-based video room with realtime chat, participant presence, WebRTC media connections, device state handling, and responsive mobile UI.
+> Браузерная видеокомната с чатом в реальном времени, отслеживанием статуса присутствия участников, WebRTC-подключениями для передачи медиапотоков, обработкой состояния устройств и адаптивным мобильным интерфейсом
 
 ## 🎯 Описание
 
