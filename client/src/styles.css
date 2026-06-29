@@ -29,6 +29,10 @@ button {
   cursor: pointer;
 }
 
+.route-transition {
+  min-height: 100vh;
+}
+
 .app-shell {
   display: grid;
   min-height: 100vh;
@@ -172,10 +176,14 @@ input[aria-invalid="true"] {
   background: #84d8c8;
   font-size: 13px;
   font-weight: 900;
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .invite-button:hover {
   background: #a3eadf;
+  box-shadow: 0 8px 26px rgba(132, 216, 200, 0.16);
 }
 
 .invite-status {
@@ -226,6 +234,11 @@ input[aria-invalid="true"] {
   min-height: 0;
   overflow: hidden;
   place-items: stretch;
+}
+
+.stage-grid-shell {
+  display: grid;
+  min-height: 0;
 }
 
 .video-grid {
@@ -490,10 +503,14 @@ input[aria-invalid="true"] {
   place-items: center;
   color: #f7f7f2;
   background: #2a3036;
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .icon-button:hover {
   background: #343d45;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
 }
 
 .icon-button:disabled {
@@ -712,6 +729,10 @@ input[aria-invalid="true"] {
   .app-shell {
     min-height: 100dvh;
     padding: 20px;
+  }
+
+  .route-transition {
+    min-height: 100dvh;
   }
 
   .start-panel {

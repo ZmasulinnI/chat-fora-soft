@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertTriangle,
   Copy,
@@ -16,6 +17,7 @@ import {
 import { useLocalMedia } from '../hooks/useLocalMedia.js';
 import { usePeerConnections } from '../hooks/usePeerConnections.js';
 import { useRoom } from '../hooks/useRoom.js';
+import { useUiFeedback } from '../hooks/useUiFeedback.js';
 import { MAX_DISPLAY_NAME_LENGTH, validateDisplayName } from '../lib/displayName.js';
 import { canSendMessage, formatMessageTime, normalizeOutgoingMessage } from '../lib/chat.js';
 import { buildRoomPath, generateRoomId, parseRoute } from '../lib/routing.js';
@@ -25,6 +27,44 @@ import {
   hasLiveVideoTrack,
   isAudioMuted
 } from '../lib/videoTile.js';
+
+const buttonMotion = {
+  whileHover: { y: -1 },
+  whileTap: { scale: 0.96 },
+  transition: { type: 'spring', stiffness: 520, damping: 32 }
+};
+
+const softSpring = {
+  type: 'spring',
+  stiffness: 420,
+  damping: 34
+};
+
+const routeTransition = {
+  duration: 0.22,
+  ease: [0.22, 1, 0.36, 1]
+};
+
+const routeVariants = {
+  initial: {
+    opacity: 0,
+    y: 16,
+    scale: 0.985,
+    filter: 'blur(6px)'
+  },
+  animate: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    filter: 'blur(0px)'
+  },
+  exit: {
+    opacity: 0,
+    y: -14,
+    scale: 0.99,
+    filter: 'blur(5px)'
+  }
+};
 
 export function App() {
   const [route, setRoute] = useState(() => parseRoute(window.location.pathname));
@@ -56,48 +96,71 @@ export function App() {
     navigate(buildRoomPath(generateRoomId()));
   }
 
-  if (route.name === 'room') {
-    if (!displayName) {
-      return (
-        <NameGate
-          title="Войти в комнату"
-          submitLabel="Войти"
-          onSubmit={(nextDisplayName) => setDisplayName(nextDisplayName)}
-        />
-      );
-    }
-
-    return (
-      <RoomShell
-        roomId={route.roomId}
-        displayName={displayName}
-        onGoHome={() => {
-          setDisplayName('');
-          navigate('/');
-        }}
-      />
-    );
-  }
-
   return (
-    <NameGate title="Видеочат-комната" submitLabel="Создать комнату" onSubmit={handleCreateRoom} />
+    <AnimatePresence mode="wait">
+      {route.name === 'room' && !displayName ? (
+        <AnimatedRoute key={`gate-${route.roomId ?? 'room'}`}>
+          <NameGate
+            title="Войти в комнату"
+            submitLabel="Войти"
+            onSubmit={(nextDisplayName) => setDisplayName(nextDisplayName)}
+          />
+        </AnimatedRoute>
+      ) : null}
+      {route.name === 'room' && displayName ? (
+        <AnimatedRoute key={`room-${route.roomId}`}>
+          <RoomShell
+            roomId={route.roomId}
+            displayName={displayName}
+            onGoHome={() => {
+              setDisplayName('');
+              navigate('/');
+            }}
+          />
+        </AnimatedRoute>
+      ) : null}
+      {route.name !== 'room' ? (
+        <AnimatedRoute key="home">
+          <NameGate title="Видеочат-комната" submitLabel="Создать комнату" onSubmit={handleCreateRoom} />
+        </AnimatedRoute>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+function AnimatedRoute({ children }) {
+  return (
+    <motion.div
+      className="route-transition"
+      variants={routeVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={routeTransition}
+    >
+      {children}
+    </motion.div>
   );
 }
 
 function NameGate({ title, submitLabel, onSubmit }) {
   const [nameInput, setNameInput] = useState('');
   const [error, setError] = useState('');
+  const feedback = useUiFeedback();
 
   function handleSubmit(event) {
     event.preventDefault();
+    feedback.playClick();
 
     const result = validateDisplayName(nameInput);
 
     if (!result.ok) {
+      feedback.playError();
       setError(result.error);
       return;
     }
 
+    feedback.playSuccess();
     setError('');
     setNameInput(result.value);
     onSubmit(result.value);
@@ -105,10 +168,22 @@ function NameGate({ title, submitLabel, onSubmit }) {
 
   return (
     <main className="app-shell">
-      <section className="start-panel" aria-labelledby="app-title">
+      <motion.section
+        className="start-panel"
+        aria-labelledby="app-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={softSpring}
+      >
         <p className="eyebrow">Video Chat Room</p>
         <h1 id="app-title">{title}</h1>
-        <form className="start-form" onSubmit={handleSubmit} noValidate>
+        <motion.form
+          className="start-form"
+          onSubmit={handleSubmit}
+          noValidate
+          animate={error ? { x: [0, -6, 6, -4, 4, 0] } : { x: 0 }}
+          transition={{ duration: 0.24 }}
+        >
           <label className="field-label" htmlFor="display-name">
             Имя
           </label>
@@ -128,14 +203,24 @@ function NameGate({ title, submitLabel, onSubmit }) {
               }
             }}
           />
-          {error ? (
-            <p className="field-error" id="display-name-error">
-              {error}
-            </p>
-          ) : null}
-          <button type="submit">{submitLabel}</button>
-        </form>
-      </section>
+          <AnimatePresence>
+            {error ? (
+              <motion.p
+                className="field-error"
+                id="display-name-error"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+              >
+                {error}
+              </motion.p>
+            ) : null}
+          </AnimatePresence>
+          <motion.button type="submit" {...buttonMotion}>
+            {submitLabel}
+          </motion.button>
+        </motion.form>
+      </motion.section>
     </main>
   );
 }
@@ -144,6 +229,10 @@ function RoomShell({ roomId, displayName, onGoHome }) {
   const [inviteStatus, setInviteStatus] = useState({ type: 'idle', message: '' });
   const [isLeaving, setIsLeaving] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const previousParticipantIdsRef = useRef(null);
+  const previousMessageCountRef = useRef(0);
+  const previousRoomStatusRef = useRef('idle');
+  const feedback = useUiFeedback();
   const localMedia = useLocalMedia();
   const mediaWarnings = getLocalMediaWarnings(localMedia);
   const audioControlDisabled = Boolean(localMedia.audioError) || localMedia.status === 'unsupported';
@@ -171,8 +260,55 @@ function RoomShell({ roomId, displayName, onGoHome }) {
     return () => window.clearTimeout(timeoutId);
   }, [inviteStatus.type]);
 
+  useEffect(() => {
+    if (room.status !== 'joined') {
+      previousParticipantIdsRef.current = null;
+      return;
+    }
+
+    const participantIds = new Set(room.participants.map((participant) => participant.id));
+    const previousParticipantIds = previousParticipantIdsRef.current;
+
+    if (previousParticipantIds) {
+      if (participantIds.size > previousParticipantIds.size) {
+        feedback.playJoin();
+      } else if (participantIds.size < previousParticipantIds.size) {
+        feedback.playLeave();
+      }
+    }
+
+    previousParticipantIdsRef.current = participantIds;
+  }, [feedback, room.participants, room.status]);
+
+  useEffect(() => {
+    const previousMessageCount = previousMessageCountRef.current;
+    const lastMessage = room.messages.at(-1);
+
+    if (
+      room.status === 'joined' &&
+      room.messages.length > previousMessageCount &&
+      lastMessage?.type === 'user' &&
+      lastMessage.senderId !== room.participantId
+    ) {
+      feedback.playMessage();
+    }
+
+    previousMessageCountRef.current = room.messages.length;
+  }, [feedback, room.messages, room.participantId, room.status]);
+
+  useEffect(() => {
+    if (room.status === 'error' && previousRoomStatusRef.current !== 'error') {
+      feedback.playError();
+    }
+
+    previousRoomStatusRef.current = room.status;
+  }, [feedback, room.status]);
+
   async function handleCopyInviteLink() {
+    feedback.playClick();
+
     if (!navigator.clipboard?.writeText) {
+      feedback.playError();
       setInviteStatus({
         type: 'error',
         message: 'Браузер не разрешил копирование. Скопируйте адрес из строки браузера.'
@@ -182,8 +318,10 @@ function RoomShell({ roomId, displayName, onGoHome }) {
 
     try {
       await navigator.clipboard.writeText(window.location.href);
+      feedback.playSuccess();
       setInviteStatus({ type: 'success', message: 'Ссылка скопирована' });
     } catch {
+      feedback.playError();
       setInviteStatus({
         type: 'error',
         message: 'Не удалось скопировать ссылку. Скопируйте адрес из строки браузера.'
@@ -196,11 +334,32 @@ function RoomShell({ roomId, displayName, onGoHome }) {
       return;
     }
 
+    feedback.playLeave();
     setIsLeaving(true);
     await room.leaveRoom();
     peers.closeAllPeerConnections();
     localMedia.stopLocalMedia();
     onGoHome();
+  }
+
+  function handleToggleAudio() {
+    feedback.playToggle();
+    localMedia.toggleAudio();
+  }
+
+  function handleToggleVideo() {
+    feedback.playToggle();
+    localMedia.toggleVideo();
+  }
+
+  function handleOpenChat() {
+    feedback.playClick();
+    setIsChatOpen(true);
+  }
+
+  function handleCloseChat() {
+    feedback.playClick();
+    setIsChatOpen(false);
   }
 
   return (
@@ -231,100 +390,157 @@ function RoomShell({ roomId, displayName, onGoHome }) {
           </p>
         </div>
       </header>
-      {mediaWarnings.length > 0 ? (
-        <div className="media-warning" role="status">
-          <AlertTriangle size={18} aria-hidden="true" />
-          <div>
-            {mediaWarnings.map((warning) => (
-              <span key={warning.kind} className="media-warning-item">
-                {warning.message}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      <AnimatePresence>
+        {mediaWarnings.length > 0 ? (
+          <motion.div
+            className="media-warning"
+            role="status"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={softSpring}
+          >
+            <AlertTriangle size={18} aria-hidden="true" />
+            <div>
+              {mediaWarnings.map((warning) => (
+                <span key={warning.kind} className="media-warning-item">
+                  {warning.message}
+                </span>
+              ))}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
       <section className="room-main" aria-label="Комната видеочата">
         <div className="video-stage">
           <div className="stage-body">
-            {localMedia.status === 'requesting' ? <p>Запрашиваем доступ к камере и микрофону...</p> : null}
-            {canJoinRoom && room.status === 'connecting' ? <p>Подключение...</p> : null}
-            {room.status === 'error' ? <RoomError message={room.error} onRetry={room.retry} illustration /> : null}
-            {room.status === 'room-full' ? (
-              <RoomError message="Комната заполнена" actionLabel="Повторить вход" onRetry={room.retry} />
-            ) : null}
-            {room.status === 'display-name-taken' ? (
-              <RoomError message={room.error} actionLabel="Повторить вход" onRetry={room.retry} />
-            ) : null}
-            {room.status === 'joined' ? (
-              <VideoGrid
-                localParticipant={localParticipant}
-                localDisplayName={displayName}
-                localStream={localMedia.stream}
-                participants={room.participants}
-                participantId={room.participantId}
-                remoteStreams={peers.remoteStreams}
-                peerErrors={peers.peerErrors}
-              />
-            ) : null}
+            <AnimatePresence mode="popLayout">
+              {localMedia.status === 'requesting' ? (
+                <motion.p
+                  key="requesting"
+                  className="room-status"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                >
+                  Запрашиваем доступ к камере и микрофону...
+                </motion.p>
+              ) : null}
+              {canJoinRoom && room.status === 'connecting' ? (
+                <motion.p
+                  key="connecting"
+                  className="room-status"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                >
+                  Подключение...
+                </motion.p>
+              ) : null}
+              {room.status === 'error' ? (
+                <RoomError key="error" message={room.error} onRetry={room.retry} illustration />
+              ) : null}
+              {room.status === 'room-full' ? (
+                <RoomError
+                  key="room-full"
+                  message="Комната заполнена"
+                  actionLabel="Повторить вход"
+                  onRetry={room.retry}
+                />
+              ) : null}
+              {room.status === 'display-name-taken' ? (
+                <RoomError
+                  key="display-name-taken"
+                  message={room.error}
+                  actionLabel="Повторить вход"
+                  onRetry={room.retry}
+                />
+              ) : null}
+              {room.status === 'joined' ? (
+                <motion.div
+                  key="video-grid"
+                  className="stage-grid-shell"
+                  initial={{ opacity: 0, scale: 0.985 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.985 }}
+                  transition={softSpring}
+                >
+                  <VideoGrid
+                    localParticipant={localParticipant}
+                    localDisplayName={displayName}
+                    localStream={localMedia.stream}
+                    participants={room.participants}
+                    participantId={room.participantId}
+                    remoteStreams={peers.remoteStreams}
+                    peerErrors={peers.peerErrors}
+                  />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
           </div>
           <div className="media-controls" aria-label="Управление звонком">
-            <button
+            <motion.button
               type="button"
               className="icon-button mobile-chat-toggle"
               aria-label="Открыть чат"
               title="Открыть чат"
-              onClick={() => setIsChatOpen(true)}
+              onClick={handleOpenChat}
+              {...buttonMotion}
             >
               <MessageCircle size={20} />
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               type="button"
               className="icon-button"
               aria-label={audioControlDisabled ? 'Микрофон недоступен' : localMedia.audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
               title={audioControlDisabled ? localMedia.audioError : localMedia.audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
               disabled={audioControlDisabled}
-              onClick={localMedia.toggleAudio}
+              onClick={handleToggleAudio}
+              {...buttonMotion}
             >
               {localMedia.audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               type="button"
               className="icon-button"
               aria-label={videoControlDisabled ? 'Камера недоступна' : localMedia.videoEnabled ? 'Выключить камеру' : 'Включить камеру'}
               title={videoControlDisabled ? localMedia.videoError : localMedia.videoEnabled ? 'Выключить камеру' : 'Включить камеру'}
               disabled={videoControlDisabled}
-              onClick={localMedia.toggleVideo}
+              onClick={handleToggleVideo}
+              {...buttonMotion}
             >
               {localMedia.videoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               type="button"
               className="icon-button danger"
               aria-label={isLeaving ? 'Выход из комнаты' : 'Выйти'}
               title={isLeaving ? 'Выход из комнаты' : 'Выйти'}
               disabled={isLeaving}
               onClick={handleLeaveRoom}
+              {...buttonMotion}
             >
               <LogOut size={20} />
-            </button>
+            </motion.button>
           </div>
         </div>
         <button
           type="button"
           className={`sidebar-backdrop ${isChatOpen ? 'is-open' : ''}`}
           aria-label="Закрыть чат"
-          onClick={() => setIsChatOpen(false)}
+          onClick={handleCloseChat}
         />
         <aside className={`room-sidebar ${isChatOpen ? 'is-open' : ''}`}>
-          <button
+          <motion.button
             type="button"
             className="sidebar-close"
             aria-label="Закрыть чат"
             title="Закрыть чат"
-            onClick={() => setIsChatOpen(false)}
+            onClick={handleCloseChat}
+            {...buttonMotion}
           >
             <X size={20} />
-          </button>
+          </motion.button>
           <ParticipantList participants={room.participants} localParticipantId={room.participantId} />
           <ChatPanel messages={room.messages} onSendMessage={room.sendChatMessage} />
         </aside>
@@ -368,43 +584,53 @@ function ParticipantList({ participants, localParticipantId }) {
         <span>{participants.length}/4</span>
       </div>
       {participants.length > 0 ? (
-        <ul className="participants-list">
-          {participants.map((participant, index) => {
-            const isSelf = participant.id === localParticipantId;
-            const audioEnabled = Boolean(participant.media?.audioEnabled);
-            const videoEnabled = Boolean(participant.media?.videoEnabled);
+        <motion.ul className="participants-list" layout>
+          <AnimatePresence initial={false}>
+            {participants.map((participant, index) => {
+              const isSelf = participant.id === localParticipantId;
+              const audioEnabled = Boolean(participant.media?.audioEnabled);
+              const videoEnabled = Boolean(participant.media?.videoEnabled);
 
-            return (
-              <li key={participant.id} className={isSelf ? 'is-self' : undefined}>
-                <span className="participant-avatar" aria-hidden="true">
-                  {getInitials(participant.displayName)}
-                </span>
-                <span className="participant-main">
-                  <span className="participant-name">
-                    {participant.displayName}
-                    {isSelf ? <span className="self-label">вы</span> : null}
+              return (
+                <motion.li
+                  key={participant.id}
+                  className={isSelf ? 'is-self' : undefined}
+                  layout
+                  initial={{ opacity: 0, x: 14 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -14 }}
+                  transition={softSpring}
+                >
+                  <span className="participant-avatar" aria-hidden="true">
+                    {getInitials(participant.displayName)}
                   </span>
-                  <span className="participant-ordinal">
-                    <UserRound size={13} aria-hidden="true" />
-                    #{index + 1}
+                  <span className="participant-main">
+                    <span className="participant-name">
+                      {participant.displayName}
+                      {isSelf ? <span className="self-label">вы</span> : null}
+                    </span>
+                    <span className="participant-ordinal">
+                      <UserRound size={13} aria-hidden="true" />
+                      #{index + 1}
+                    </span>
                   </span>
-                </span>
-                <span className="participant-status" aria-label="Состояние медиа">
-                  {audioEnabled ? (
-                    <Mic size={14} aria-label="Микрофон включен" />
-                  ) : (
-                    <MicOff size={14} aria-label="Микрофон выключен" />
-                  )}
-                  {videoEnabled ? (
-                    <Video size={14} aria-label="Камера включена" />
-                  ) : (
-                    <VideoOff size={14} aria-label="Камера выключена" />
-                  )}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+                  <span className="participant-status" aria-label="Состояние медиа">
+                    {audioEnabled ? (
+                      <Mic size={14} aria-label="Микрофон включен" />
+                    ) : (
+                      <MicOff size={14} aria-label="Микрофон выключен" />
+                    )}
+                    {videoEnabled ? (
+                      <Video size={14} aria-label="Камера включена" />
+                    ) : (
+                      <VideoOff size={14} aria-label="Камера выключена" />
+                    )}
+                  </span>
+                </motion.li>
+              );
+            })}
+          </AnimatePresence>
+        </motion.ul>
       ) : (
         <p>Пока никого нет</p>
       )}
@@ -416,6 +642,7 @@ function ChatPanel({ messages, onSendMessage }) {
   const [messageText, setMessageText] = useState('');
   const [error, setError] = useState('');
   const messagesEndRef = useRef(null);
+  const feedback = useUiFeedback();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ block: 'end' });
@@ -428,14 +655,17 @@ function ChatPanel({ messages, onSendMessage }) {
       return;
     }
 
+    feedback.playClick();
     const outgoingMessage = normalizeOutgoingMessage(messageText);
     const response = await onSendMessage(outgoingMessage);
 
     if (!response?.ok) {
+      feedback.playError();
       setError(response?.message ?? 'Не удалось отправить сообщение');
       return;
     }
 
+    feedback.playSuccess();
     setError('');
     setMessageText('');
   }
@@ -445,15 +675,25 @@ function ChatPanel({ messages, onSendMessage }) {
       <h2 id="messages-title">Сообщения</h2>
       <div className="messages-list" role="log" aria-live="polite">
         {messages.length > 0 ? (
-          <ul>
-            {messages.map((message) => (
-              <li key={message.id} className={message.type === 'system' ? 'system-message' : ''}>
-                <span className="message-time">{formatMessageTime(message.createdAt)}</span>
-                {message.type === 'user' ? <strong>{message.senderName}: </strong> : null}
-                <span>{message.text}</span>
-              </li>
-            ))}
-          </ul>
+          <motion.ul layout>
+            <AnimatePresence initial={false}>
+              {messages.map((message) => (
+                <motion.li
+                  key={message.id}
+                  className={message.type === 'system' ? 'system-message' : ''}
+                  layout
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={softSpring}
+                >
+                  <span className="message-time">{formatMessageTime(message.createdAt)}</span>
+                  {message.type === 'user' ? <strong>{message.senderName}: </strong> : null}
+                  <span>{message.text}</span>
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </motion.ul>
         ) : (
           <p>История пуста</p>
         )}
@@ -475,11 +715,22 @@ function ChatPanel({ messages, onSendMessage }) {
             }
           }}
         />
-        <button type="submit" disabled={!canSendMessage(messageText)}>
+        <motion.button type="submit" disabled={!canSendMessage(messageText)} {...buttonMotion}>
           Отправить
-        </button>
+        </motion.button>
       </form>
-      {error ? <p className="field-error">{error}</p> : null}
+      <AnimatePresence>
+        {error ? (
+          <motion.p
+            className="field-error"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+          >
+            {error}
+          </motion.p>
+        ) : null}
+      </AnimatePresence>
     </section>
   );
 }
@@ -494,6 +745,7 @@ function VideoGrid({
   peerErrors
 }) {
   const [focusedTileId, setFocusedTileId] = useState('');
+  const feedback = useUiFeedback();
   const remoteParticipants = participants.filter((participant) => participant.id !== participantId);
   const tiles = [
     {
@@ -517,6 +769,7 @@ function VideoGrid({
     : tiles;
 
   function handleTileToggle(tileId) {
+    feedback.playClick();
     setFocusedTileId((currentTileId) => (currentTileId === tileId ? '' : tileId));
   }
 
@@ -526,19 +779,21 @@ function VideoGrid({
       data-count={Math.max(1, visibleTiles.length)}
       data-focused={focusedTileId ? 'true' : 'false'}
     >
-      {visibleTiles.map((tile) => (
-        <VideoTile
-          key={tile.id}
-          displayName={tile.displayName}
-          stream={tile.stream}
-          media={tile.media}
-          error={tile.error}
-          isMuted={tile.isMuted}
-          isSelf={tile.isSelf}
-          isFocused={focusedTileId === tile.id}
-          onToggleFocus={() => handleTileToggle(tile.id)}
-        />
-      ))}
+      <AnimatePresence initial={false}>
+        {visibleTiles.map((tile) => (
+          <VideoTile
+            key={tile.id}
+            displayName={tile.displayName}
+            stream={tile.stream}
+            media={tile.media}
+            error={tile.error}
+            isMuted={tile.isMuted}
+            isSelf={tile.isSelf}
+            isFocused={focusedTileId === tile.id}
+            onToggleFocus={() => handleTileToggle(tile.id)}
+          />
+        ))}
+      </AnimatePresence>
     </div>
   );
 }
@@ -641,13 +896,20 @@ function VideoTile({
   }, [audioMuted, autoplayBlocked]);
 
   return (
-    <article
+    <motion.article
       className={`video-tile ${isFocused ? 'is-focused' : ''}`}
+      layout
       role="button"
       tabIndex={0}
       aria-pressed={isFocused}
       onClick={onToggleFocus}
       onKeyDown={handleKeyDown}
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.985 }}
+      transition={softSpring}
     >
       {renderMediaElement()}
       {renderFallback()}
@@ -672,19 +934,33 @@ function VideoTile({
         </button>
       ) : null}
       {error ? <p className="tile-error">{error}</p> : null}
-    </article>
+    </motion.article>
   );
 }
 
 function RoomError({ message, actionLabel = 'Повторить', onRetry, illustration = false }) {
+  const feedback = useUiFeedback();
+
+  function handleRetry() {
+    feedback.playClick();
+    onRetry();
+  }
+
   return (
-    <div className="room-error" role="alert">
+    <motion.div
+      className="room-error"
+      role="alert"
+      initial={{ opacity: 0, scale: 0.96, y: 8 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.96, y: -8 }}
+      transition={softSpring}
+    >
       {illustration ? <ServerUnavailableIllustration /> : null}
       <p>{message}</p>
-      <button type="button" onClick={onRetry}>
+      <motion.button type="button" onClick={handleRetry} {...buttonMotion}>
         {actionLabel}
-      </button>
-    </div>
+      </motion.button>
+    </motion.div>
   );
 }
 

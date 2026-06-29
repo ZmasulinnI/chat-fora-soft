@@ -12,10 +12,12 @@
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.3",
     "lucide-react": "^0.562.0",
+    "motion": "^12.42.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "socket.io-client": "^4.8.1",
     "typescript": "^5.9.3",
+    "use-sound": "^5.0.0",
     "vite": "^8.1.0"
   },
   "devDependencies": {
